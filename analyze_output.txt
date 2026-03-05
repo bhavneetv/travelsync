@@ -1,0 +1,9 @@
+﻿Analyzing lib...
+
+warning - presentation\screens\home\home_screen.dart:8:8 - Unused import: '../../../data/models/user_profile.dart'. Try removing the import directive. - unused_import
+warning - presentation\screens\profile\profile_screen.dart:6:8 - Unused import: '../../../data/models/user_profile.dart'. Try removing the import directive. - unused_import
+   info - presentation\screens\groups\group_detail_screen.dart:96:7 - Don't use 'BuildContext's across async gaps, guarded by an unrelated 'mounted' check. Guard a 'State.context' use with a 'mounted' check on the State, and other BuildContext use with a 'mounted' check on the BuildContext. - use_build_context_synchronously
+   info - presentation\screens\profile\profile_screen.dart:208:30 - Unnecessary use of string interpolation. Try replacing the string literal with the variable name. - unnecessary_string_interpolations
+   info - presentation\screens\settings\settings_screen.dart:137:30 - Don't use 'BuildContext's across async gaps, guarded by an unrelated 'mounted' check. Guard a 'State.context' use with a 'mounted' check on the State, and other BuildContext use with a 'mounted' check on the BuildContext. - use_build_context_synchronously
+
+5 issues found.
