@@ -7,10 +7,12 @@ class AppConstants {
 
   // Free API endpoints
   static const String nominatimBaseUrl = 'https://nominatim.openstreetmap.org';
+  static const String bigDataCloudBaseUrl = 'https://api.bigdatacloud.net/data';
   static const String osrmBaseUrl = 'https://router.project-osrm.org';
   static const String overpassBaseUrl = 'https://overpass-api.de/api';
   static const String openMeteoBaseUrl = 'https://api.open-meteo.com/v1';
-  static const String osmTileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+  static const String osmTileUrl = 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}';
+  static const String osmDarkTileUrl = 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}'; // Google doesn't have a direct dark tile URL like this, falling back to standard
 
   // XP Values
   static const int xpNewVillage = 10;

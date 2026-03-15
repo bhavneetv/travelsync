@@ -13,6 +13,9 @@ class TravelRoute {
   final DateTime? startedAt;
   final DateTime? endedAt;
   final String? transportMode;
+  final String? startCity;
+  final String? endCity;
+  final bool isDestination;
 
   TravelRoute({
     this.id,
@@ -29,6 +32,9 @@ class TravelRoute {
     this.startedAt,
     this.endedAt,
     this.transportMode,
+    this.startCity,
+    this.endCity,
+    this.isDestination = false,
   });
 
   factory TravelRoute.fromJson(Map<String, dynamic> json) {
@@ -51,6 +57,9 @@ class TravelRoute {
           ? DateTime.parse(json['ended_at'] as String)
           : null,
       transportMode: json['transport_mode'] as String?,
+      startCity: json['start_city'] as String?,
+      endCity: json['end_city'] as String?,
+      isDestination: json['is_destination'] as bool? ?? false,
     );
   }
 
@@ -69,6 +78,9 @@ class TravelRoute {
       'started_at': startedAt?.toIso8601String(),
       'ended_at': endedAt?.toIso8601String(),
       'transport_mode': transportMode,
+      'start_city': startCity,
+      'end_city': endCity,
+      'is_destination': isDestination,
     };
   }
 }

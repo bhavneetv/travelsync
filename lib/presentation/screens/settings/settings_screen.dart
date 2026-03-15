@@ -74,7 +74,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       );
                     }
                   } else {
-                    locService.stopTracking();
+                    await locService.stopTracking();
                   }
                 },
               ),
@@ -144,7 +144,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               subtitle: 'Log out of your account',
               onTap: () async {
                 await ref.read(authServiceProvider).signOut();
-                if (mounted) context.go('/login');
+                if (!context.mounted) return;
+                context.go('/login');
               },
             ),
             const SizedBox(height: 8),
@@ -212,9 +213,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           children: [
             Text(
               'Tracking Interval',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 24),
             ...['30 minutes', '1 hour', '3 hours'].map(
@@ -264,7 +265,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 );
               }
             },
-            child: const Text('Wipe', style: TextStyle(color: AppColors.accent)),
+            child: const Text(
+              'Wipe',
+              style: TextStyle(color: AppColors.accent),
+            ),
           ),
         ],
       ),
@@ -291,7 +295,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               await ref.read(authServiceProvider).deleteAccount();
               if (mounted) context.go('/login');
             },
-            child: const Text('Delete', style: TextStyle(color: AppColors.accent)),
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: AppColors.accent),
+            ),
           ),
         ],
       ),
@@ -385,10 +392,7 @@ class _SettingsTile extends StatelessWidget {
             if (trailing != null)
               trailing!
             else if (onTap != null)
-              Icon(
-                Icons.chevron_right_rounded,
-                color: AppColors.textSecondary,
-              ),
+              Icon(Icons.chevron_right_rounded, color: AppColors.textSecondary),
           ],
         ),
       ),

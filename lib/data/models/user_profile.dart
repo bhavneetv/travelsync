@@ -9,6 +9,7 @@ class UserProfile {
   final double totalDistanceKm;
   final int countriesVisited;
   final int citiesVisited;
+  final int villagesVisited;
   final bool isPublic;
   final DateTime? createdAt;
 
@@ -23,6 +24,7 @@ class UserProfile {
     this.totalDistanceKm = 0,
     this.countriesVisited = 0,
     this.citiesVisited = 0,
+    this.villagesVisited = 0,
     this.isPublic = true,
     this.createdAt,
   });
@@ -34,11 +36,12 @@ class UserProfile {
       fullName: json['full_name'] as String?,
       bio: json['bio'] as String?,
       avatarUrl: json['avatar_url'] as String?,
-      travelLevel: json['travel_level'] as int? ?? 1,
-      totalXp: json['total_xp'] as int? ?? 0,
-      totalDistanceKm: (json['total_distance_km'] as num?)?.toDouble() ?? 0,
-      countriesVisited: json['countries_visited'] as int? ?? 0,
-      citiesVisited: json['cities_visited'] as int? ?? 0,
+      travelLevel: _asInt(json['travel_level'], fallback: 1),
+      totalXp: _asInt(json['total_xp']),
+      totalDistanceKm: _asDouble(json['total_distance_km']),
+      countriesVisited: _asInt(json['countries_visited']),
+      citiesVisited: _asInt(json['cities_visited']),
+      villagesVisited: _asInt(json['villages_visited']),
       isPublic: json['is_public'] as bool? ?? true,
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'] as String)
@@ -58,6 +61,7 @@ class UserProfile {
       'total_distance_km': totalDistanceKm,
       'countries_visited': countriesVisited,
       'cities_visited': citiesVisited,
+      'villages_visited': villagesVisited,
       'is_public': isPublic,
     };
   }
@@ -72,6 +76,7 @@ class UserProfile {
     double? totalDistanceKm,
     int? countriesVisited,
     int? citiesVisited,
+    int? villagesVisited,
     bool? isPublic,
   }) {
     return UserProfile(
@@ -85,8 +90,25 @@ class UserProfile {
       totalDistanceKm: totalDistanceKm ?? this.totalDistanceKm,
       countriesVisited: countriesVisited ?? this.countriesVisited,
       citiesVisited: citiesVisited ?? this.citiesVisited,
+      villagesVisited: villagesVisited ?? this.villagesVisited,
       isPublic: isPublic ?? this.isPublic,
       createdAt: createdAt,
     );
+  }
+
+  static int _asInt(dynamic value, {int fallback = 0}) {
+    if (value == null) return fallback;
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value) ?? fallback;
+    return fallback;
+  }
+
+  static double _asDouble(dynamic value, {double fallback = 0}) {
+    if (value == null) return fallback;
+    if (value is double) return value;
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? fallback;
+    return fallback;
   }
 }

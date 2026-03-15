@@ -14,6 +14,11 @@ import '../presentation/screens/groups/create_group_screen.dart';
 import '../presentation/screens/groups/join_group_screen.dart';
 import '../presentation/screens/profile/profile_screen.dart';
 import '../presentation/screens/settings/settings_screen.dart';
+import '../presentation/screens/memories/countries_screen.dart';
+import '../presentation/screens/memories/states_screen.dart';
+import '../presentation/screens/memories/cities_screen.dart';
+import '../presentation/screens/memories/place_detail_screen.dart';
+import '../presentation/screens/memories/memory_viewer_screen.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 final _shellNavigatorKey = GlobalKey<NavigatorState>();
@@ -66,6 +71,12 @@ final routerProvider = Provider<GoRouter>((ref) {
             ),
           ),
           GoRoute(
+            path: '/memories',
+            pageBuilder: (context, state) => const NoTransitionPage(
+              child: CountriesScreen(),
+            ),
+          ),
+          GoRoute(
             path: '/groups',
             pageBuilder: (context, state) => const NoTransitionPage(
               child: GroupsScreen(),
@@ -98,6 +109,55 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => GroupDetailScreen(
           groupId: state.pathParameters['id']!,
         ),
+      ),
+
+      // Memories drill-down routes
+      GoRoute(
+        path: '/memories/states',
+        builder: (context, state) {
+          final params = state.uri.queryParameters;
+          return StatesScreen(
+            countryName: params['country'] ?? '',
+            countryCode: params['code'] ?? '',
+          );
+        },
+      ),
+      GoRoute(
+        path: '/memories/cities',
+        builder: (context, state) {
+          final params = state.uri.queryParameters;
+          return CitiesScreen(
+            stateName: params['state'] ?? '',
+            countryName: params['country'] ?? '',
+            countryCode: params['code'] ?? '',
+          );
+        },
+      ),
+      GoRoute(
+        path: '/memories/place',
+        builder: (context, state) {
+          final params = state.uri.queryParameters;
+          return PlaceDetailScreen(
+            cityName: params['city'] ?? '',
+            placeType: params['type'] ?? 'city',
+            stateName: params['state'] ?? '',
+            countryName: params['country'] ?? '',
+            countryCode: params['code'] ?? '',
+            lat: double.tryParse(params['lat'] ?? ''),
+            lng: double.tryParse(params['lng'] ?? ''),
+          );
+        },
+      ),
+      GoRoute(
+        path: '/memories/viewer',
+        builder: (context, state) {
+          final params = state.uri.queryParameters;
+          return MemoryViewerScreen(
+            initialIndex: int.tryParse(params['index'] ?? '0') ?? 0,
+            placeType: params['placeType'] ?? 'city',
+            placeName: params['placeName'] ?? '',
+          );
+        },
       ),
     ],
   );

@@ -11,8 +11,9 @@ class AppShell extends StatelessWidget {
     final location = GoRouterState.of(context).matchedLocation;
     if (location == '/') return 0;
     if (location == '/stats') return 1;
-    if (location == '/groups') return 2;
-    if (location == '/profile') return 3;
+    if (location == '/memories') return 2;
+    if (location == '/groups') return 3;
+    if (location == '/profile') return 4;
     return 0;
   }
 
@@ -35,7 +36,7 @@ class AppShell extends StatelessWidget {
         ),
         child: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
@@ -52,16 +53,22 @@ class AppShell extends StatelessWidget {
                   onTap: index == 1 ? null : () => context.go('/stats'),
                 ),
                 _NavItem(
+                  icon: Icons.photo_album_rounded,
+                  label: 'Memories',
+                  isActive: index == 2,
+                  onTap: index == 2 ? null : () => context.go('/memories'),
+                ),
+                _NavItem(
                   icon: Icons.group_rounded,
                   label: 'Groups',
-                  isActive: index == 2,
-                  onTap: index == 2 ? null : () => context.go('/groups'),
+                  isActive: index == 3,
+                  onTap: index == 3 ? null : () => context.go('/groups'),
                 ),
                 _NavItem(
                   icon: Icons.person_rounded,
                   label: 'Profile',
-                  isActive: index == 3,
-                  onTap: index == 3 ? null : () => context.go('/profile'),
+                  isActive: index == 4,
+                  onTap: index == 4 ? null : () => context.go('/profile'),
                 ),
               ],
             ),
@@ -92,7 +99,7 @@ class _NavItem extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 250),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: isActive
               ? AppColors.primary.withValues(alpha: 0.15)
@@ -105,16 +112,16 @@ class _NavItem extends StatelessWidget {
             Icon(
               icon,
               color: isActive ? AppColors.primary : AppColors.textSecondary,
-              size: 24,
+              size: 22,
             ),
             if (isActive) ...[
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               Text(
                 label,
                 style: TextStyle(
                   color: AppColors.primary,
                   fontWeight: FontWeight.w700,
-                  fontSize: 13,
+                  fontSize: 12,
                 ),
               ),
             ],

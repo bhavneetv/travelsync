@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:async';
 import '../../core/constants.dart';
 import '../data/models/user_profile.dart';
 
@@ -21,17 +22,44 @@ class AuthService {
   String? get userId => currentUser?.id;
 
   Stream<UserProfile?> userProfileStream() {
-    final user = currentUser;
-    if (user == null) return Stream.value(null);
+    return Stream<UserProfile?>.multi((controller) {
+      Timer? poller;
+      StreamSubscription<AuthState>? authSub;
 
-    return _supabase
-        .from('users')
-        .stream(primaryKey: ['id'])
-        .eq('id', user.id)
-        .map((data) {
-          if (data.isEmpty) return null;
-          return UserProfile.fromJson(data.first);
-        });
+      Future<void> emitProfile() async {
+        final user = currentUser;
+        if (user == null) {
+          controller.add(null);
+          return;
+        }
+
+        try {
+          final data = await _supabase
+              .from('users')
+              .select()
+              .eq('id', user.id)
+              .maybeSingle();
+
+          if (!controller.isClosed) {
+            controller.add(data == null ? null : UserProfile.fromJson(data));
+          }
+        } catch (_) {
+          // Avoid surfacing realtime/polling exceptions to profile UI.
+          if (!controller.isClosed) {
+            controller.add(null);
+          }
+        }
+      }
+
+      emitProfile();
+      authSub = _supabase.auth.onAuthStateChange.listen((_) => emitProfile());
+      poller = Timer.periodic(const Duration(seconds: 20), (_) => emitProfile());
+
+      controller.onCancel = () async {
+        poller?.cancel();
+        await authSub?.cancel();
+      };
+    });
   }
 
   Future<UserProfile?> getProfile() async {

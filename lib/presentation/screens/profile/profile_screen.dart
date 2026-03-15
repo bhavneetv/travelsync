@@ -188,21 +188,30 @@ class ProfileScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 16),
 
-                // Quick stats row
+                // Quick stats row — tappable with drill-down
                 Row(
                   children: [
-                    _ProfileStat(
-                      value: '${user.citiesVisited}',
-                      label: 'Cities',
-                      icon: Icons.location_city_rounded,
-                    ),
-                    const SizedBox(width: 12),
                     _ProfileStat(
                       value: '${user.countriesVisited}',
                       label: 'Countries',
                       icon: Icons.public_rounded,
+                      onTap: () => context.push('/memories'),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 8),
+                    _ProfileStat(
+                      value: '${user.citiesVisited}',
+                      label: 'Cities',
+                      icon: Icons.location_city_rounded,
+                      onTap: () => context.push('/memories'),
+                    ),
+                    const SizedBox(width: 8),
+                    _ProfileStat(
+                      value: '${user.villagesVisited}',
+                      label: 'Villages',
+                      icon: Icons.holiday_village_rounded,
+                      onTap: () => context.push('/memories'),
+                    ),
+                    const SizedBox(width: 8),
                     _ProfileStat(
                       value: user.totalDistanceKm.toStringAsFixed(0),
                       label: 'KM',
@@ -389,41 +398,46 @@ class _ProfileStat extends StatelessWidget {
   final String value;
   final String label;
   final IconData icon;
+  final VoidCallback? onTap;
 
   const _ProfileStat({
     required this.value,
     required this.label,
     required this.icon,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.darkCard,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: AppColors.primary, size: 24),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppColors.darkCard,
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Column(
+            children: [
+              Icon(icon, color: AppColors.primary, size: 22),
+              const SizedBox(height: 6),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
-            ),
-            Text(
-              label,
-              style: TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 12,
+              Text(
+                label,
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 11,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

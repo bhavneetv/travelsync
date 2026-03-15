@@ -47,7 +47,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
         actions: [
           IconButton(
             icon: const Icon(Icons.share_rounded),
-            onPressed: () => _showShareDialog(context),
+            onPressed: _showShareDialog,
           ),
         ],
         bottom: TabBar(
@@ -79,7 +79,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
     );
   }
 
-  void _showShareDialog(BuildContext context) async {
+  void _showShareDialog() async {
     // Get group info
     final group = await AppConstants.supabase
         .from('travel_groups')
@@ -114,9 +114,9 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen>
             const SizedBox(height: 24),
             Text(
               'Invite Members',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 24),
             // QR Code
@@ -164,10 +164,7 @@ class _ChecklistTab extends ConsumerWidget {
   final String groupId;
   final TextEditingController todoController;
 
-  const _ChecklistTab({
-    required this.groupId,
-    required this.todoController,
-  });
+  const _ChecklistTab({required this.groupId, required this.todoController});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -365,9 +362,7 @@ class _MembersTab extends ConsumerWidget {
                 color: AppColors.darkCard,
                 borderRadius: BorderRadius.circular(16),
                 border: isOwner
-                    ? Border.all(
-                        color: AppColors.gold.withValues(alpha: 0.3),
-                      )
+                    ? Border.all(color: AppColors.gold.withValues(alpha: 0.3))
                     : null,
               ),
               child: Row(
@@ -463,20 +458,30 @@ class _InfoTab extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Group name
-              _InfoRow(icon: Icons.group_rounded, label: 'Name', value: group.name),
+              _InfoRow(
+                icon: Icons.group_rounded,
+                label: 'Name',
+                value: group.name,
+              ),
               if (group.destination != null)
-                _InfoRow(icon: Icons.place_rounded, label: 'Destination', value: group.destination!),
+                _InfoRow(
+                  icon: Icons.place_rounded,
+                  label: 'Destination',
+                  value: group.destination!,
+                ),
               if (group.tripStart != null)
                 _InfoRow(
                   icon: Icons.calendar_today_rounded,
                   label: 'Trip Start',
-                  value: '${group.tripStart!.day}/${group.tripStart!.month}/${group.tripStart!.year}',
+                  value:
+                      '${group.tripStart!.day}/${group.tripStart!.month}/${group.tripStart!.year}',
                 ),
               if (group.tripEnd != null)
                 _InfoRow(
                   icon: Icons.event_rounded,
                   label: 'Trip End',
-                  value: '${group.tripEnd!.day}/${group.tripEnd!.month}/${group.tripEnd!.year}',
+                  value:
+                      '${group.tripEnd!.day}/${group.tripEnd!.month}/${group.tripEnd!.year}',
                 ),
               if (group.budget != null)
                 _InfoRow(
@@ -500,7 +505,9 @@ class _InfoTab extends ConsumerWidget {
                       context: context,
                       builder: (ctx) => AlertDialog(
                         title: const Text('Leave Group?'),
-                        content: const Text('You will no longer have access to this group.'),
+                        content: const Text(
+                          'You will no longer have access to this group.',
+                        ),
                         actions: [
                           TextButton(
                             onPressed: () => Navigator.pop(ctx, false),
@@ -508,7 +515,10 @@ class _InfoTab extends ConsumerWidget {
                           ),
                           TextButton(
                             onPressed: () => Navigator.pop(ctx, true),
-                            child: const Text('Leave', style: TextStyle(color: AppColors.accent)),
+                            child: const Text(
+                              'Leave',
+                              style: TextStyle(color: AppColors.accent),
+                            ),
                           ),
                         ],
                       ),
@@ -519,12 +529,20 @@ class _InfoTab extends ConsumerWidget {
                       if (context.mounted) context.pop();
                     }
                   },
-                  icon: const Icon(Icons.exit_to_app_rounded, color: AppColors.accent),
-                  label: const Text('Leave Group', style: TextStyle(color: AppColors.accent)),
+                  icon: const Icon(
+                    Icons.exit_to_app_rounded,
+                    color: AppColors.accent,
+                  ),
+                  label: const Text(
+                    'Leave Group',
+                    style: TextStyle(color: AppColors.accent),
+                  ),
                   style: OutlinedButton.styleFrom(
                     side: const BorderSide(color: AppColors.accent),
                     minimumSize: const Size(double.infinity, 52),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
                   ),
                 ),
             ],
@@ -540,7 +558,11 @@ class _InfoRow extends StatelessWidget {
   final String label;
   final String value;
 
-  const _InfoRow({required this.icon, required this.label, required this.value});
+  const _InfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -560,10 +582,7 @@ class _InfoRow extends StatelessWidget {
             children: [
               Text(
                 label,
-                style: TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 12,
-                ),
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
               ),
               Text(
                 value,
