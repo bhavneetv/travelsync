@@ -19,6 +19,8 @@ import '../presentation/screens/memories/states_screen.dart';
 import '../presentation/screens/memories/cities_screen.dart';
 import '../presentation/screens/memories/place_detail_screen.dart';
 import '../presentation/screens/memories/memory_viewer_screen.dart';
+import '../presentation/screens/profile/edit_profile_screen.dart';
+import '../presentation/screens/profile/profile_settings_screen.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 final _shellNavigatorKey = GlobalKey<NavigatorState>();
@@ -30,7 +32,8 @@ final routerProvider = Provider<GoRouter>((ref) {
     redirect: (context, state) {
       final session = Supabase.instance.client.auth.currentSession;
       final isLoggedIn = session != null;
-      final isAuthRoute = state.matchedLocation == '/login' ||
+      final isAuthRoute =
+          state.matchedLocation == '/login' ||
           state.matchedLocation == '/register' ||
           state.matchedLocation == '/forgot-password';
 
@@ -40,10 +43,7 @@ final routerProvider = Provider<GoRouter>((ref) {
     },
     routes: [
       // Auth routes
-      GoRoute(
-        path: '/login',
-        builder: (context, state) => const LoginScreen(),
-      ),
+      GoRoute(path: '/login', builder: (context, state) => const LoginScreen()),
       GoRoute(
         path: '/register',
         builder: (context, state) => const RegisterScreen(),
@@ -60,33 +60,28 @@ final routerProvider = Provider<GoRouter>((ref) {
         routes: [
           GoRoute(
             path: '/',
-            pageBuilder: (context, state) => const NoTransitionPage(
-              child: HomeScreen(),
-            ),
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: HomeScreen()),
           ),
           GoRoute(
             path: '/stats',
-            pageBuilder: (context, state) => const NoTransitionPage(
-              child: StatsScreen(),
-            ),
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: StatsScreen()),
           ),
           GoRoute(
             path: '/memories',
-            pageBuilder: (context, state) => const NoTransitionPage(
-              child: CountriesScreen(),
-            ),
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: CountriesScreen()),
           ),
           GoRoute(
             path: '/groups',
-            pageBuilder: (context, state) => const NoTransitionPage(
-              child: GroupsScreen(),
-            ),
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: GroupsScreen()),
           ),
           GoRoute(
             path: '/profile',
-            pageBuilder: (context, state) => const NoTransitionPage(
-              child: ProfileScreen(),
-            ),
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: ProfileScreen()),
           ),
         ],
       ),
@@ -95,6 +90,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/settings',
         builder: (context, state) => const SettingsScreen(),
+      ),
+      GoRoute(
+        path: '/profile/edit',
+        builder: (context, state) => const EditProfileScreen(),
+      ),
+      GoRoute(
+        path: '/profile/settings',
+        builder: (context, state) => const ProfileSettingsScreen(),
       ),
       GoRoute(
         path: '/groups/create',
@@ -106,9 +109,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/groups/:id',
-        builder: (context, state) => GroupDetailScreen(
-          groupId: state.pathParameters['id']!,
-        ),
+        builder: (context, state) =>
+            GroupDetailScreen(groupId: state.pathParameters['id']!),
       ),
 
       // Memories drill-down routes
