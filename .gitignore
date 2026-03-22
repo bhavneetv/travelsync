@@ -32,6 +32,10 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+android/.gradle-user-home
+android/.gradle-user-home-windows
+android/app/build/
+*.bin
 
 # Symbolication related
 app.*.symbols
@@ -44,3 +48,5 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 *.hprof
+stitch
+# android/.gradle-user-home/wrapper/dists/gradle-8.12-all/ejduaidbjup3bmmkhw3rie4zb/gradle-8.12/docs/kotlin-dsl/gradle/org.gradle.testkit.runner/-gradle-runner/with-gradle-version.html

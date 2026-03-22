@@ -194,6 +194,12 @@ class _StateCard extends ConsumerWidget {
     final memoryAsync = ref.watch(latestMemoryProvider(
       MemoryQuery(placeType: 'state', placeName: name),
     ));
+    final hasMemoryImage = memoryAsync.asData?.value != null;
+    final titleColor = hasMemoryImage ? Colors.white : AppColors.textDark;
+    final subtitleColor =
+        hasMemoryImage ? AppColors.textSecondary : AppColors.textDarkSecondary;
+    final chevronColor =
+        hasMemoryImage ? AppColors.textSecondary : AppColors.textDarkSecondary;
 
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
@@ -268,8 +274,8 @@ class _StateCard extends ConsumerWidget {
                           children: [
                             Text(
                               name,
-                              style: const TextStyle(
-                                color: Colors.white,
+                              style: TextStyle(
+                                color: titleColor,
                                 fontSize: 16,
                                 fontWeight: FontWeight.w700,
                               ),
@@ -279,16 +285,16 @@ class _StateCard extends ConsumerWidget {
                             Text(
                               '$visitCount visit${visitCount == 1 ? '' : 's'}',
                               style: TextStyle(
-                                color: AppColors.textSecondary,
+                                color: subtitleColor,
                                 fontSize: 12,
                               ),
                             ),
                           ],
                         ),
                       ),
-                      const Icon(
+                      Icon(
                         Icons.chevron_right_rounded,
-                        color: AppColors.textSecondary,
+                        color: chevronColor,
                         size: 24,
                       ),
                     ],

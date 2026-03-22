@@ -47,6 +47,9 @@ class NominatimService {
           'country_code':
               _normalizeText((data['countryCode'] as String?)?.toUpperCase()),
           'place_name': resolvedVillage ?? resolvedCity ?? locality,
+          'settlement_kind': resolvedVillage != null
+              ? 'village'
+              : (resolvedCity != null ? 'city' : null),
         };
       }
     } catch (_) {
@@ -66,6 +69,9 @@ class NominatimService {
     }
     final placeName =
         village ?? city ?? bigDataResult['place_name'] ?? fallback['place_name'];
+    final settlementKind = village != null
+        ? 'village'
+        : (city != null ? 'city' : null);
 
     return {
       'city': city,
@@ -74,6 +80,7 @@ class NominatimService {
       'country': bigDataResult['country'] ?? fallback['country'],
       'country_code': bigDataResult['country_code'] ?? fallback['country_code'],
       'place_name': placeName,
+      'settlement_kind': settlementKind,
     };
   }
 
@@ -139,6 +146,9 @@ class NominatimService {
             'country_code':
                 _normalizeText((address['country_code'] as String?)?.toUpperCase()),
             'place_name': village ?? city,
+            'settlement_kind': village != null
+                ? 'village'
+                : (city != null ? 'city' : null),
           };
         }
       }
@@ -153,6 +163,7 @@ class NominatimService {
       'country': null,
       'country_code': null,
       'place_name': null,
+      'settlement_kind': null,
     };
   }
 

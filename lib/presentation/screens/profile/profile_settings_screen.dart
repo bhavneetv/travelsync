@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/constants.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/location_service.dart';
 
 class ProfileSettingsScreen extends ConsumerStatefulWidget {
   const ProfileSettingsScreen({super.key});
@@ -271,36 +272,150 @@ class _ProfileSettingsScreenState
       body:
           'This will permanently delete all your logs, routes, and visited places. Your account will remain active.',
       confirmLabel: 'Wipe Data',
-      onConfirm: () async {
-        final uid = AppConstants.supabase.auth.currentUser?.id;
-        if (uid == null) return;
-        await Future.wait([
-          AppConstants.supabase
-              .from('travel_logs')
-              .delete()
-              .eq('user_id', uid),
-          AppConstants.supabase
-              .from('routes')
-              .delete()
-              .eq('user_id', uid),
-          AppConstants.supabase
-              .from('visited_cities')
-              .delete()
-              .eq('user_id', uid),
-          AppConstants.supabase
-              .from('visited_countries')
-              .delete()
-              .eq('user_id', uid),
-          AppConstants.supabase
-              .from('visited_villages')
-              .delete()
-              .eq('user_id', uid),
-        ]);
-        if (context.mounted) {
-          _toast(context, 'Travel data wiped', success: true);
-        }
-      },
+      onConfirm: () => _wipeTravelData(context),
     );
+  }
+
+  Future<void> _wipeTravelData(BuildContext context) async {
+    final uid = AppConstants.supabase.auth.currentUser?.id;
+    if (uid == null) {
+      if (context.mounted) {
+        _toast(context, 'No signed in user found');
+      }
+      return;
+    }
+
+    try {
+      // Prevent background tracking from writing new rows during wipe.
+      await ref.read(locationServiceProvider).stopTracking();
+
+      final memories = await AppConstants.supabase
+          .from('travel_memories')
+          .select('image_url')
+          .eq('user_id', uid);
+
+      final memoryPaths = (memories as List)
+          .map((row) => _storagePathFromPublicUrl(
+                row['image_url'] as String?,
+                'memories',
+              ))
+          .whereType<String>()
+          .toList();
+
+      final failedTables = <String>[];
+
+      Future<void> deleteByUserId(String table) async {
+        try {
+          await AppConstants.supabase.from(table).delete().eq('user_id', uid);
+
+          final remaining = await AppConstants.supabase
+              .from(table)
+              .select('id')
+              .eq('user_id', uid)
+              .limit(1);
+
+          if ((remaining as List).isNotEmpty) {
+            failedTables.add('$table (rows still present)');
+          }
+        } catch (e) {
+          failedTables.add('$table (${_compactError(e)})');
+        }
+      }
+
+      await deleteByUserId('travel_logs');
+      await deleteByUserId('routes');
+      await deleteByUserId('visited_cities');
+      await deleteByUserId('visited_countries');
+      await deleteByUserId('visited_villages');
+      await deleteByUserId('visited_states');
+      await deleteByUserId('travel_memories');
+      await deleteByUserId('achievements');
+      await deleteByUserId('xp_history');
+
+      if (memoryPaths.isNotEmpty) {
+        try {
+          await AppConstants.supabase.storage
+              .from('memories')
+              .remove(memoryPaths);
+        } catch (e) {
+          failedTables.add('memories (storage: ${_compactError(e)})');
+        }
+      }
+
+      try {
+        await AppConstants.supabase.from('users').update({
+          'total_distance_km': 0,
+          'countries_visited': 0,
+          'cities_visited': 0,
+          'villages_visited': 0,
+          'total_xp': 0,
+          'travel_level': 1,
+        }).eq('id', uid);
+
+        final user = await AppConstants.supabase
+            .from('users')
+            .select(
+              'total_distance_km, countries_visited, cities_visited, villages_visited, total_xp, travel_level',
+            )
+            .eq('id', uid)
+            .single();
+
+        final countersAreZero =
+            (user['total_distance_km'] as num?) == 0 &&
+            (user['countries_visited'] as int?) == 0 &&
+            (user['cities_visited'] as int?) == 0 &&
+            (user['villages_visited'] as int?) == 0 &&
+            (user['total_xp'] as int?) == 0 &&
+            (user['travel_level'] as int?) == 1;
+
+        if (!countersAreZero) {
+          failedTables.add('users (counters not reset)');
+        }
+      } catch (e) {
+        failedTables.add('users (counters: ${_compactError(e)})');
+      }
+
+      ref.invalidate(currentUserProvider);
+
+      if (context.mounted) {
+        if (failedTables.isEmpty) {
+          _toast(context, 'Travel data wiped', success: true);
+        } else {
+          final brief = failedTables.take(3).join(', ');
+          final hasMore = failedTables.length > 3;
+          _toast(
+            context,
+            hasMore
+                ? 'Wipe incomplete: $brief (+${failedTables.length - 3} more)'
+                : 'Wipe incomplete: $brief',
+          );
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        _toast(context, 'Failed to wipe travel data: $e');
+      }
+    }
+  }
+
+  String? _storagePathFromPublicUrl(String? publicUrl, String bucket) {
+    if (publicUrl == null || publicUrl.isEmpty) return null;
+
+    final uri = Uri.tryParse(publicUrl);
+    if (uri == null) return null;
+
+    final bucketIndex = uri.pathSegments.indexOf(bucket);
+    if (bucketIndex < 0 || bucketIndex + 1 >= uri.pathSegments.length) {
+      return null;
+    }
+
+    return uri.pathSegments.sublist(bucketIndex + 1).join('/');
+  }
+
+  String _compactError(Object error) {
+    final text = error.toString().replaceAll('\n', ' ').trim();
+    if (text.length <= 80) return text;
+    return '${text.substring(0, 80)}...';
   }
 
   void _signOutDialog(BuildContext context) {

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme.dart';
 
@@ -24,53 +24,59 @@ class AppShell extends StatelessWidget {
     return Scaffold(
       body: child,
       bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: AppColors.darkSurface,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.2),
-              blurRadius: 20,
-              offset: const Offset(0, -5),
-            ),
-          ],
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _NavItem(
-                  icon: Icons.explore_rounded,
-                  label: 'Explore',
-                  isActive: index == 0,
-                  onTap: index == 0 ? null : () => context.go('/'),
-                ),
-                _NavItem(
-                  icon: Icons.bar_chart_rounded,
-                  label: 'Stats',
-                  isActive: index == 1,
-                  onTap: index == 1 ? null : () => context.go('/stats'),
-                ),
-                _NavItem(
-                  icon: Icons.photo_album_rounded,
-                  label: 'Memories',
-                  isActive: index == 2,
-                  onTap: index == 2 ? null : () => context.go('/memories'),
-                ),
-                _NavItem(
-                  icon: Icons.group_rounded,
-                  label: 'Groups',
-                  isActive: index == 3,
-                  onTap: index == 3 ? null : () => context.go('/groups'),
-                ),
-                _NavItem(
-                  icon: Icons.person_rounded,
-                  label: 'Profile',
-                  isActive: index == 4,
-                  onTap: index == 4 ? null : () => context.go('/profile'),
-                ),
-              ],
+        color: AppColors.lightBg,
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        child: Container(
+          decoration: BoxDecoration(
+            color: AppColors.lightSurface,
+            borderRadius: BorderRadius.circular(28),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.08),
+                blurRadius: 24,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _NavItem(
+                    icon: Icons.home_rounded,
+                    label: 'Home',
+                    isActive: index == 0,
+                    onTap: index == 0 ? null : () => context.go('/'),
+                  ),
+                  _NavItem(
+                    icon: Icons.map_rounded,
+                    label: 'Stats',
+                    isActive: index == 1,
+                    onTap: index == 1 ? null : () => context.go('/stats'),
+                  ),
+                  _NavItem(
+                    icon: Icons.explore_rounded,
+                    label: 'Travel',
+                    isActive: index == 2,
+                    onTap: index == 2 ? null : () => context.go('/memories'),
+                  ),
+                  _NavItem(
+                    icon: Icons.groups_rounded,
+                    label: 'Groups',
+                    isActive: index == 3,
+                    onTap: index == 3 ? null : () => context.go('/groups'),
+                  ),
+                  _NavItem(
+                    icon: Icons.person_rounded,
+                    label: 'Profile',
+                    isActive: index == 4,
+                    onTap: index == 4 ? null : () => context.go('/profile'),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -94,38 +100,42 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: isActive
-              ? AppColors.primary.withValues(alpha: 0.15)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              color: isActive ? AppColors.primary : AppColors.textSecondary,
-              size: 22,
-            ),
-            if (isActive) ...[
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  color: AppColors.primary,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 12,
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          decoration: BoxDecoration(
+            color: isActive ? AppColors.textDark : Colors.transparent,
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  icon,
+                  color: isActive
+                      ? AppColors.lightSurface
+                      : AppColors.textDarkSecondary,
+                  size: 22,
                 ),
-              ),
-            ],
-          ],
+                const SizedBox(height: 4),
+                Text(
+                  label.toUpperCase(),
+                  style: TextStyle(
+                    color: isActive
+                        ? AppColors.lightSurface
+                        : AppColors.textDarkSecondary,
+                    fontSize: 11,
+                    letterSpacing: 0.8,
+                    fontWeight: isActive ? FontWeight.w700 : FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

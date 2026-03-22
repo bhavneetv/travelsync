@@ -139,6 +139,36 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     super.dispose();
   }
 
+  Future<void> _toggleTracking() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final locService = ref.read(locationServiceProvider);
+    final isTracking = ref.read(isTrackingProvider);
+
+    if (isTracking) {
+      await locService.stopTracking();
+      if (mounted) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Tracking paused. Route will complete at destination.'),
+          ),
+        );
+      }
+      return;
+    }
+
+    final started = await locService.startTracking();
+    if (!mounted) return;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          started
+              ? 'Tracking started. Distance will now be recorded.'
+              : 'Enable location permission/services to start tracking.',
+        ),
+      ),
+    );
+  }
+
   // â”€â”€ map tap â”€â”€
   void _onMapTap(TapPosition tapPos, LatLng point) {
     setState(() {
@@ -583,7 +613,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         color: isTracking
                             ? const Color(0xFF30D158)
                             : const Color(0xFF636366),
-                        onTap: () {}, // toggle tracking if desired
+                        onTap: _toggleTracking,
                       ),
 
                       const SizedBox(width: 8),

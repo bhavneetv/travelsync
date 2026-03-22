@@ -185,6 +185,16 @@ class _CountryCard extends ConsumerWidget {
     final memoryAsync = ref.watch(latestMemoryProvider(
       MemoryQuery(placeType: 'country', placeName: name),
     ));
+    final hasMemoryImage = memoryAsync.asData?.value != null;
+    final titleColor = hasMemoryImage ? Colors.white : AppColors.textDark;
+    final subtitleColor =
+        hasMemoryImage ? AppColors.textSecondary : AppColors.textDarkSecondary;
+    final flagBgColor = hasMemoryImage
+        ? AppColors.darkBg.withValues(alpha: 0.6)
+        : AppColors.lightCard;
+    final arrowBgColor = hasMemoryImage
+        ? AppColors.primary.withValues(alpha: 0.2)
+        : AppColors.primary.withValues(alpha: 0.12);
 
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
@@ -241,7 +251,7 @@ class _CountryCard extends ConsumerWidget {
                         width: 56,
                         height: 56,
                         decoration: BoxDecoration(
-                          color: AppColors.darkBg.withValues(alpha: 0.6),
+                          color: flagBgColor,
                           borderRadius: BorderRadius.circular(16),
                         ),
                         child: Center(
@@ -259,8 +269,8 @@ class _CountryCard extends ConsumerWidget {
                           children: [
                             Text(
                               name,
-                              style: const TextStyle(
-                                color: Colors.white,
+                              style: TextStyle(
+                                color: titleColor,
                                 fontSize: 18,
                                 fontWeight: FontWeight.w700,
                               ),
@@ -269,7 +279,7 @@ class _CountryCard extends ConsumerWidget {
                             Text(
                               '$visitCount visit${visitCount == 1 ? '' : 's'}',
                               style: TextStyle(
-                                color: AppColors.textSecondary,
+                                color: subtitleColor,
                                 fontSize: 13,
                               ),
                             ),
@@ -281,7 +291,7 @@ class _CountryCard extends ConsumerWidget {
                         width: 40,
                         height: 40,
                         decoration: BoxDecoration(
-                          color: AppColors.primary.withValues(alpha: 0.2),
+                          color: arrowBgColor,
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: const Icon(

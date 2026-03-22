@@ -21,6 +21,9 @@ final activeRouteIdProvider = StateProvider<int?>((ref) => null);
 /// Live route points for drawing on map while tracking
 final routePointsProvider = StateProvider<List<List<double>>>((ref) => []);
 
+/// Real-time accumulated distance in kilometers while tracking
+final accumulatedDistanceKmProvider = StateProvider<double>((ref) => 0.0);
+
 class LocationService {
   final Ref _ref;
   final _nominatim = NominatimService();
@@ -43,7 +46,7 @@ class LocationService {
   DateTime? _stationaryStartTime; // When user first became stationary at anchor
   bool _destinationDetected = false;
   static const double _destinationRadiusKm = 5.0; // 5km radius
-  static const Duration _destinationDuration = Duration(hours: 4); // 4 hours
+  static const Duration _destinationDuration = Duration(hours: 5); // 5 hours
 
   LocationService(this._ref);
 
@@ -97,12 +100,17 @@ class LocationService {
     _destinationCheckTimer = null;
     _isStopping = false;
 
+    final hasActiveRoute =
+        _ref.read(activeRouteIdProvider) != null && _routeStartTime != null;
+
     _ref.read(isTrackingProvider.notifier).state = true;
 
-    // Reset destination detection
-    _stationaryAnchor = null;
-    _stationaryStartTime = null;
-    _destinationDetected = false;
+    if (!hasActiveRoute) {
+      // Reset destination detection for a brand-new route only.
+      _stationaryAnchor = null;
+      _stationaryStartTime = null;
+      _destinationDetected = false;
+    }
 
     // Get starting position for route
     try {
@@ -112,19 +120,27 @@ class LocationService {
           timeLimit: Duration(seconds: 15),
         ),
       );
-      _lastRoutePosition = startPos;
-      _routeStartTime = DateTime.now();
-      _accumulatedDistanceKm = 0;
-      _routePoints.clear();
-      _appendRoutePoint(startPos.latitude, startPos.longitude);
-      _ref.read(routePointsProvider.notifier).state = List.from(_routePoints);
+      if (!hasActiveRoute) {
+        _lastRoutePosition = startPos;
+        _routeStartTime = DateTime.now();
+        _accumulatedDistanceKm = 0;
+        _ref.read(accumulatedDistanceKmProvider.notifier).state = 0.0;
+        _routePoints.clear();
+        _appendRoutePoint(startPos.latitude, startPos.longitude);
+        _ref.read(routePointsProvider.notifier).state = List.from(_routePoints);
 
-      // Initialize destination detection anchor
-      _stationaryAnchor = startPos;
-      _stationaryStartTime = DateTime.now();
+        // Initialize destination detection anchor
+        _stationaryAnchor = startPos;
+        _stationaryStartTime = DateTime.now();
 
-      // Create a new route entry
-      await _startRoute(startPos);
+        // Create a new route entry
+        await _startRoute(startPos);
+      } else {
+        // Resume paused tracking without creating a new route.
+        _lastRoutePosition = startPos;
+        _stationaryAnchor ??= startPos;
+        _stationaryStartTime ??= DateTime.now();
+      }
     } catch (_) {
       // If we can't get start position, just continue without route
     }
@@ -146,6 +162,7 @@ class LocationService {
             if (_routeStartTime == null) {
               _routeStartTime = DateTime.now();
               _accumulatedDistanceKm = 0;
+              _ref.read(accumulatedDistanceKmProvider.notifier).state = 0.0;
               _routePoints.clear();
               _appendRoutePoint(position.latitude, position.longitude);
               _lastRoutePosition = position;
@@ -172,7 +189,15 @@ class LocationService {
                 position.latitude,
                 position.longitude,
               );
-              _accumulatedDistanceKm += segmentM / 1000;
+              if (_isValidRouteSegment(
+                segmentMeters: segmentM,
+                previous: _lastRoutePosition!,
+                current: position,
+              )) {
+                _accumulatedDistanceKm += segmentM / 1000;
+                _ref.read(accumulatedDistanceKmProvider.notifier).state =
+                    _accumulatedDistanceKm;
+              }
             }
             _lastRoutePosition = position;
 
@@ -232,14 +257,14 @@ class LocationService {
         if (elapsed >= _destinationDuration) {
           _destinationDetected = true;
           // Auto-stop tracking when destination is detected
-          stopTracking();
+          stopTracking(completeRoute: true);
         }
       }
     }
   }
 
-  /// Stop tracking and finalize route
-  Future<void> stopTracking() async {
+  /// Stop tracking. Route is finalized only when destination condition is met.
+  Future<void> stopTracking({bool completeRoute = false}) async {
     if (_isStopping) return;
     _isStopping = true;
 
@@ -250,8 +275,10 @@ class LocationService {
     _positionSubscription = null;
     _ref.read(isTrackingProvider.notifier).state = false;
 
-    // Finalize the route
-    await _endRoute();
+    if (completeRoute) {
+      await _endRoute();
+    }
+
     _isStopping = false;
   }
 
@@ -438,13 +465,13 @@ class LocationService {
     var villageName = _normalizePlaceName(geoData['village']);
     final cityName = _normalizePlaceName(geoData['city']);
     final placeName = _normalizePlaceName(geoData['place_name']);
+    final settlementKind = _normalizePlaceName(geoData['settlement_kind']);
 
     // If village key is missing but place_name is more specific than city,
     // treat it as village/locality to preserve actual village names.
     if (villageName == null &&
-        placeName != null &&
-        (cityName == null ||
-            placeName.toLowerCase() != cityName.toLowerCase())) {
+      placeName != null &&
+      settlementKind?.toLowerCase() == 'village') {
       villageName = placeName;
     }
 
@@ -703,6 +730,30 @@ class LocationService {
     return totalMeters / 1000;
   }
 
+  bool _isValidRouteSegment({
+    required double segmentMeters,
+    required Position previous,
+    required Position current,
+  }) {
+    if (segmentMeters < 5) return false;
+
+    // Guard against rare GPS spikes that can badly inflate route distance.
+    if (segmentMeters > 3000) return false;
+
+    final prevTs = previous.timestamp;
+    final currTs = current.timestamp;
+    if (prevTs != null && currTs != null) {
+      final seconds = currTs.difference(prevTs).inSeconds;
+      if (seconds > 0) {
+        final speedMps = segmentMeters / seconds;
+        final speedKmh = speedMps * 3.6;
+        if (speedKmh > 220) return false;
+      }
+    }
+
+    return true;
+  }
+
   void _resetTrackingState() {
     _ref.read(activeRouteIdProvider.notifier).state = null;
     _lastSavedPosition = null;
@@ -711,6 +762,7 @@ class LocationService {
     _lastUiUpdateAt = null;
     _routeStartTime = null;
     _accumulatedDistanceKm = 0;
+    _ref.read(accumulatedDistanceKmProvider.notifier).state = 0.0;
     _routePoints.clear();
     _startCityName = null;
     _lastRouteCreateAttempt = null;

@@ -436,6 +436,10 @@ class _PlaceCard extends ConsumerWidget {
     final memoryAsync = ref.watch(latestMemoryProvider(
       MemoryQuery(placeType: placeType, placeName: name),
     ));
+    final hasMemoryImage = memoryAsync.asData?.value != null;
+    final titleColor = hasMemoryImage ? Colors.white : AppColors.textDark;
+    final subtitleColor =
+        hasMemoryImage ? AppColors.textSecondary : AppColors.textDarkSecondary;
 
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
@@ -500,8 +504,8 @@ class _PlaceCard extends ConsumerWidget {
                       const Spacer(),
                       Text(
                         name,
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: titleColor,
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
                         ),
@@ -517,7 +521,7 @@ class _PlaceCard extends ConsumerWidget {
                           Text(
                             '$visitCount visit${visitCount == 1 ? '' : 's'}',
                             style: TextStyle(
-                              color: AppColors.textSecondary,
+                              color: subtitleColor,
                               fontSize: 11,
                             ),
                           ),

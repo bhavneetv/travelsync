@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/constants.dart';
 import '../data/models/travel_group.dart';
+import 'dart:async';
 import 'dart:math';
 
 final groupServiceProvider = Provider<GroupService>((ref) => GroupService());
@@ -24,8 +25,11 @@ class GroupService {
     );
   }
 
-  bool _isInfiniteRecursionError(PostgrestException error) {
-    return error.message.toLowerCase().contains('infinite recursion detected');
+  bool _isInfiniteRecursionError(Object error) {
+    final text = error.toString().toLowerCase();
+    return text.contains('infinite recursion detected') ||
+        text.contains('42p17') ||
+        text.contains('relation "group_members"');
   }
 
   List<TravelGroup> _parseGroups(List<dynamic> rows) {
@@ -34,39 +38,63 @@ class GroupService {
         .toList();
   }
 
-  Stream<List<TravelGroup>> _memberGroupsStream(String userId) {
-    return _supabase
-        .from('group_members')
-        .stream(primaryKey: ['group_id', 'user_id'])
-        .eq('user_id', userId)
-        .asyncMap((members) async {
-      if (members.isEmpty) return <TravelGroup>[];
+  Future<List<TravelGroup>> getUserGroups(String userId) async {
+    try {
+      final members = await _supabase
+          .from('group_members')
+          .select('group_id')
+          .eq('user_id', userId);
 
-      final groupIds = members.map((m) => m['group_id']).toList();
+      final memberRows = List<Map<String, dynamic>>.from(members);
+      if (memberRows.isEmpty) return <TravelGroup>[];
+
+      final groupIds = memberRows
+          .map((m) => m['group_id'])
+          .where((id) => id != null)
+          .toList();
+
+      if (groupIds.isEmpty) return <TravelGroup>[];
+
       final groups = await _supabase
           .from('travel_groups')
           .select()
           .inFilter('id', groupIds);
 
       return _parseGroups(groups as List);
-    });
-  }
+    } catch (error) {
+      if (!_isInfiniteRecursionError(error)) rethrow;
 
-  Stream<List<TravelGroup>> _ownedGroupsStream(String userId) {
-    return _supabase
-        .from('travel_groups')
-        .stream(primaryKey: ['id'])
-        .eq('owner_id', userId)
-        .map((rows) => _parseGroups(rows));
+      // Fallback for recursive RLS policies: show groups the user owns.
+      try {
+        final groups = await _supabase
+            .from('travel_groups')
+            .select()
+            .eq('owner_id', userId);
+        return _parseGroups(groups as List);
+      } catch (fallbackError) {
+        if (_isInfiniteRecursionError(fallbackError)) {
+          // Final safety net: avoid surfacing backend policy recursion to UI.
+          return <TravelGroup>[];
+        }
+        rethrow;
+      }
+    }
   }
 
   Stream<List<TravelGroup>> userGroupsStream(String userId) async* {
     try {
-      yield* _memberGroupsStream(userId);
-    } on PostgrestException catch (error) {
-      if (!_isInfiniteRecursionError(error)) rethrow;
-      yield* _ownedGroupsStream(userId);
+      yield await getUserGroups(userId);
+    } catch (_) {
+      yield <TravelGroup>[];
     }
+
+    yield* Stream.periodic(const Duration(seconds: 6)).asyncMap((_) async {
+      try {
+        return await getUserGroups(userId);
+      } catch (_) {
+        return <TravelGroup>[];
+      }
+    });
   }
 
   Future<TravelGroup> createGroup({
@@ -96,7 +124,7 @@ class GroupService {
         'user_id': userId,
         'role': 'owner',
       });
-    } on PostgrestException catch (error) {
+    } catch (error) {
       if (!_isInfiniteRecursionError(error)) rethrow;
     }
 
@@ -115,20 +143,30 @@ class GroupService {
     if (group == null) return null;
 
     // Check if already a member
-    final existing = await _supabase
-        .from('group_members')
-        .select()
-        .eq('group_id', group['id'])
-        .eq('user_id', userId)
-        .maybeSingle();
+    Map<String, dynamic>? existing;
+    try {
+      existing = await _supabase
+          .from('group_members')
+          .select()
+          .eq('group_id', group['id'])
+          .eq('user_id', userId)
+          .maybeSingle();
+    } catch (error) {
+      if (!_isInfiniteRecursionError(error)) rethrow;
+      existing = null;
+    }
 
     if (existing != null) return TravelGroup.fromJson(group);
 
-    await _supabase.from('group_members').insert({
-      'group_id': group['id'],
-      'user_id': userId,
-      'role': 'member',
-    });
+    try {
+      await _supabase.from('group_members').insert({
+        'group_id': group['id'],
+        'user_id': userId,
+        'role': 'member',
+      });
+    } catch (error) {
+      if (!_isInfiniteRecursionError(error)) rethrow;
+    }
 
     return TravelGroup.fromJson(group);
   }
@@ -173,29 +211,82 @@ class GroupService {
   }
 
   Future<List<Map<String, dynamic>>> getGroupMembers(String groupId) async {
+    Future<Map<String, Map<String, dynamic>>> loadUsersById(
+      List<String> userIds,
+    ) async {
+      if (userIds.isEmpty) return {};
+      final rows = await _supabase
+          .from('users')
+          .select('id, username, full_name, avatar_url, travel_level')
+          .inFilter('id', userIds);
+
+      return {
+        for (final row in (rows as List))
+          (row['id'] as String): Map<String, dynamic>.from(row as Map),
+      };
+    }
+
     try {
       final members = await _supabase
           .from('group_members')
-          .select('*, users:user_id(username, full_name, avatar_url, travel_level)')
+          .select('group_id, user_id, role')
           .eq('group_id', groupId);
 
-      return List<Map<String, dynamic>>.from(members);
-    } on PostgrestException catch (error) {
+      final memberRows = List<Map<String, dynamic>>.from(members);
+      if (memberRows.isEmpty) return [];
+
+      final userIds = memberRows
+          .map((m) => m['user_id']?.toString())
+          .whereType<String>()
+          .toSet()
+          .toList();
+
+      final usersById = await loadUsersById(userIds);
+
+      return memberRows
+          .map((m) => {
+                ...m,
+                'users': usersById[m['user_id']?.toString()] ??
+                    {
+                      'username': 'unknown',
+                      'full_name': null,
+                      'avatar_url': null,
+                      'travel_level': 1,
+                    },
+              })
+          .toList();
+    } catch (error) {
       if (!_isInfiniteRecursionError(error)) rethrow;
 
       final group = await _supabase
           .from('travel_groups')
-          .select('owner_id, users:owner_id(username, full_name, avatar_url, travel_level)')
+          .select('owner_id')
           .eq('id', groupId)
           .maybeSingle();
 
-      if (group == null) return [];
+      if (group == null || group['owner_id'] == null) return [];
+
+      final ownerId = group['owner_id'].toString();
+      Map<String, dynamic>? ownerProfile;
+      try {
+        final usersById = await loadUsersById([ownerId]);
+        ownerProfile = usersById[ownerId];
+      } catch (_) {
+        ownerProfile = null;
+      }
+
       return [
         {
           'group_id': groupId,
-          'user_id': group['owner_id'],
+          'user_id': ownerId,
           'role': 'owner',
-          'users': group['users'],
+          'users': ownerProfile ??
+              {
+                'username': 'owner',
+                'full_name': null,
+                'avatar_url': null,
+                'travel_level': 1,
+              },
         },
       ];
     }
@@ -203,10 +294,14 @@ class GroupService {
 
   Future<void> leaveGroup(String groupId) async {
     final userId = _supabase.auth.currentUser!.id;
-    await _supabase
-        .from('group_members')
-        .delete()
-        .eq('group_id', groupId)
-        .eq('user_id', userId);
+    try {
+      await _supabase
+          .from('group_members')
+          .delete()
+          .eq('group_id', groupId)
+          .eq('user_id', userId);
+    } catch (error) {
+      if (!_isInfiniteRecursionError(error)) rethrow;
+    }
   }
 }
