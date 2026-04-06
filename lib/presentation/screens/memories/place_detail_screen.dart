@@ -18,6 +18,29 @@ final routesForCityProvider = FutureProvider.autoDispose
   final placeName = query.cityName.trim();
   final merged = <int, Map<String, dynamic>>{};
 
+  void mergeRoute(Map<String, dynamic> route, String relation) {
+    final id = route['id'] as int;
+    final existing = merged[id];
+    const relationRank = {
+      'pass_through': 1,
+      'start': 2,
+      'end': 2,
+    };
+
+    if (existing == null) {
+      merged[id] = {...route, '_relation': relation};
+      return;
+    }
+
+    final existingRelation = existing['_relation'] as String?;
+    final existingRank = relationRank[existingRelation] ?? 0;
+    final newRank = relationRank[relation] ?? 0;
+
+    if (newRank >= existingRank) {
+      merged[id] = {...route, '_relation': relation};
+    }
+  }
+
   // 1) Name-based matches (case-insensitive, partial).
   if (placeName.isNotEmpty) {
     try {
@@ -37,10 +60,10 @@ final routesForCityProvider = FutureProvider.autoDispose
           .order('started_at', ascending: false)
           .limit(100);
       for (final r in startRoutes) {
-        merged[r['id'] as int] = Map<String, dynamic>.from(r);
+        mergeRoute(Map<String, dynamic>.from(r), 'start');
       }
       for (final r in endRoutes) {
-        merged[r['id'] as int] = Map<String, dynamic>.from(r);
+        mergeRoute(Map<String, dynamic>.from(r), 'end');
       }
     } catch (_) {
       // Ignore and continue to coordinate fallback.
@@ -72,10 +95,10 @@ final routesForCityProvider = FutureProvider.autoDispose
           .order('started_at', ascending: false)
           .limit(100);
       for (final r in startNearby) {
-        merged[r['id'] as int] = Map<String, dynamic>.from(r);
+        mergeRoute(Map<String, dynamic>.from(r), 'start');
       }
       for (final r in endNearby) {
-        merged[r['id'] as int] = Map<String, dynamic>.from(r);
+        mergeRoute(Map<String, dynamic>.from(r), 'end');
       }
     } catch (_) {
       // Continue to generic fallback.
@@ -122,7 +145,7 @@ final routesForCityProvider = FutureProvider.autoDispose
             (t) => !t.isBefore(startedAt) && !t.isAfter(windowEnd),
           );
           if (hasIntersection) {
-            merged[r['id'] as int] = Map<String, dynamic>.from(r);
+            mergeRoute(Map<String, dynamic>.from(r), 'pass_through');
           }
         }
       }
@@ -139,7 +162,9 @@ final routesForCityProvider = FutureProvider.autoDispose
         .eq('user_id', userId)
         .order('started_at', ascending: false)
         .limit(50);
-    return List<Map<String, dynamic>>.from(data);
+    return List<Map<String, dynamic>>.from(data)
+        .map((r) => {...r, '_relation': 'unknown'})
+        .toList();
   }
 
   final results = merged.values.toList();
@@ -436,6 +461,13 @@ class _PlaceDetailScreenState extends ConsumerState<PlaceDetailScreen>
 
   /// Build a contextual route label relative to this city
   String _getContextualRouteLabel(Map<String, dynamic> route) {
+    final relation = route['_relation'] as String?;
+    if (relation == 'pass_through') {
+      return widget.placeType.toLowerCase() == 'village'
+          ? 'Passed through this village'
+          : 'Passed through this city';
+    }
+
     final startCity = route['start_city'] as String?;
     final endCity = route['end_city'] as String?;
     final currentCity = widget.cityName;
@@ -459,6 +491,11 @@ class _PlaceDetailScreenState extends ConsumerState<PlaceDetailScreen>
   }
 
   IconData _getContextualIcon(Map<String, dynamic> route) {
+    final relation = route['_relation'] as String?;
+    if (relation == 'pass_through') {
+      return Icons.alt_route_rounded;
+    }
+
     final startCity = route['start_city'] as String?;
     final endCity = route['end_city'] as String?;
     final currentCity = widget.cityName;
@@ -477,6 +514,11 @@ class _PlaceDetailScreenState extends ConsumerState<PlaceDetailScreen>
   }
 
   Color _getContextualColor(Map<String, dynamic> route) {
+    final relation = route['_relation'] as String?;
+    if (relation == 'pass_through') {
+      return AppColors.success;
+    }
+
     final startCity = route['start_city'] as String?;
     final endCity = route['end_city'] as String?;
     final currentCity = widget.cityName;
@@ -493,6 +535,44 @@ class _PlaceDetailScreenState extends ConsumerState<PlaceDetailScreen>
     }
 
     return AppColors.success;
+  }
+
+  String _getRelationBadgeLabel(Map<String, dynamic> route) {
+    final relation = route['_relation'] as String?;
+    final startCity = route['start_city'] as String?;
+    final endCity = route['end_city'] as String?;
+    final currentCity = widget.cityName;
+    final isDestination = route['is_destination'] as bool? ?? false;
+
+    if (relation == 'pass_through') return 'PASS-THROUGH';
+    if (relation == 'start') return 'START';
+    if (relation == 'end') return isDestination ? 'DESTINATION' : 'END';
+
+    if (startCity != null &&
+        startCity.toLowerCase() == currentCity.toLowerCase()) {
+      return 'START';
+    }
+    if (endCity != null && endCity.toLowerCase() == currentCity.toLowerCase()) {
+      return isDestination ? 'DESTINATION' : 'END';
+    }
+
+    return 'ROUTE';
+  }
+
+  Color _getRelationBadgeColor(Map<String, dynamic> route) {
+    final label = _getRelationBadgeLabel(route);
+    switch (label) {
+      case 'PASS-THROUGH':
+        return AppColors.success;
+      case 'START':
+        return AppColors.accent;
+      case 'END':
+        return AppColors.primary;
+      case 'DESTINATION':
+        return Colors.amber;
+      default:
+        return AppColors.textSecondary;
+    }
   }
 
   @override
@@ -744,6 +824,8 @@ class _PlaceDetailScreenState extends ConsumerState<PlaceDetailScreen>
                     final contextLabel = _getContextualRouteLabel(route);
                     final contextIcon = _getContextualIcon(route);
                     final contextColor = _getContextualColor(route);
+                    final relationLabel = _getRelationBadgeLabel(route);
+                    final relationColor = _getRelationBadgeColor(route);
                     final distance = route['distance_km'];
                     final duration = route['duration_min'] as int?;
 
@@ -774,14 +856,37 @@ class _PlaceDetailScreenState extends ConsumerState<PlaceDetailScreen>
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  contextLabel,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 14,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        contextLabel,
+                                        style: const TextStyle(
+                                          color: AppColors.textDark,
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 14,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: relationColor.withValues(alpha: 0.18),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Text(
+                                        relationLabel,
+                                        style: TextStyle(
+                                          color: relationColor,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                                 const SizedBox(height: 4),
                                 Row(
@@ -790,7 +895,7 @@ class _PlaceDetailScreenState extends ConsumerState<PlaceDetailScreen>
                                       Text(
                                         '${(distance is num ? distance.toStringAsFixed(1) : distance)} km',
                                         style: TextStyle(
-                                          color: AppColors.textSecondary,
+                                          color: AppColors.textDarkSecondary,
                                           fontSize: 12,
                                         ),
                                       ),
@@ -800,7 +905,7 @@ class _PlaceDetailScreenState extends ConsumerState<PlaceDetailScreen>
                                       Text(
                                         '${duration}m',
                                         style: TextStyle(
-                                          color: AppColors.textSecondary,
+                                          color: AppColors.textDarkSecondary,
                                           fontSize: 12,
                                         ),
                                       ),

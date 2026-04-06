@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../../../core/theme.dart';
 import '../../../services/auth_service.dart';
-import '../../../services/location_service.dart';
+import '../../../services/app_settings_service.dart';
+import '../../../services/background_location_service.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -14,7 +17,6 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _isPublic = true;
-  String _trackingInterval = '1 hour';
 
   @override
   void initState() {
@@ -33,7 +35,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isTracking = ref.watch(isTrackingProvider);
+    final isTracking = ref.watch(alwaysOnTrackingProvider);
+    final intervalSeconds = ref.watch(trackingIntervalProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -55,28 +58,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             _SettingsTile(
               icon: Icons.my_location_rounded,
               title: 'Background Tracking',
-              subtitle: isTracking ? 'Active' : 'Paused',
+              subtitle: isTracking
+                  ? 'Active (${_intervalLabel(intervalSeconds)})'
+                  : 'Paused',
               trailing: Switch(
                 value: isTracking,
                 activeTrackColor: AppColors.primary,
-                onChanged: (value) async {
-                  final messenger = ScaffoldMessenger.of(context);
-                  final locService = ref.read(locationServiceProvider);
-                  if (value) {
-                    final started = await locService.startTracking();
-                    if (!started && mounted) {
-                      messenger.showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Enable location services and grant location permission to start tracking.',
-                          ),
-                        ),
-                      );
-                    }
-                  } else {
-                    await locService.stopTracking();
-                  }
-                },
+                onChanged: (value) => _toggleBackgroundTracking(value, intervalSeconds),
               ),
             ),
             const SizedBox(height: 8),
@@ -84,7 +72,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             _SettingsTile(
               icon: Icons.timer_rounded,
               title: 'Tracking Interval',
-              subtitle: _trackingInterval,
+              subtitle: _intervalLabel(intervalSeconds),
               onTap: () => _showIntervalPicker(),
             ),
             const SizedBox(height: 24),
@@ -200,6 +188,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   void _showIntervalPicker() {
+    final selectedSeconds = ref.read(trackingIntervalProvider);
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.darkSurface,
@@ -218,15 +209,36 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 24),
-            ...['30 minutes', '1 hour', '3 hours'].map(
+            ...kTrackingIntervals.map(
               (interval) => ListTile(
-                title: Text(interval),
-                trailing: _trackingInterval == interval
+                title: Text(interval.label),
+                subtitle: Text(
+                  interval.seconds == 0
+                      ? 'Highest accuracy, more battery use'
+                      : 'Lower battery use',
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+                trailing: selectedSeconds == interval.seconds
                     ? Icon(Icons.check_circle_rounded, color: AppColors.primary)
                     : null,
-                onTap: () {
-                  setState(() => _trackingInterval = interval);
-                  Navigator.pop(context);
+                onTap: () async {
+                  await ref
+                      .read(trackingIntervalProvider.notifier)
+                      .set(interval.seconds);
+                  BackgroundLocationService.updateInterval(interval.seconds);
+                  navigator.pop();
+
+                  if (!mounted) return;
+                  messenger.showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Tracking interval set to ${_intervalLabel(interval.seconds)}.',
+                      ),
+                    ),
+                  );
                 },
               ),
             ),
@@ -235,6 +247,88 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _toggleBackgroundTracking(bool enable, int intervalSeconds) async {
+    final messenger = ScaffoldMessenger.of(context);
+
+    if (!enable) {
+      await ref.read(alwaysOnTrackingProvider.notifier).set(false);
+      await BackgroundLocationService.stop();
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Background tracking disabled.'),
+        ),
+      );
+      return;
+    }
+
+    final ready = await _ensureBackgroundLocationReady();
+    if (!ready) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Enable location services and allow background location to keep tracking active.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    await ref.read(alwaysOnTrackingProvider.notifier).set(true);
+    final started = await BackgroundLocationService.start();
+    if (!started) {
+      await ref.read(alwaysOnTrackingProvider.notifier).set(false);
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Notification permission is required for background tracking.'),
+        ),
+      );
+      return;
+    }
+    BackgroundLocationService.updateInterval(intervalSeconds);
+
+    if (!mounted) return;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          'Background tracking enabled. A system notification indicates location is being used to store routes.',
+        ),
+      ),
+    );
+  }
+
+  Future<bool> _ensureBackgroundLocationReady() async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return false;
+
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      return false;
+    }
+
+    if (permission == LocationPermission.whileInUse) {
+      permission = await Geolocator.requestPermission();
+      if (permission != LocationPermission.always) {
+        return false;
+      }
+    }
+
+    await Permission.notification.request();
+    return true;
+  }
+
+  String _intervalLabel(int seconds) {
+    if (seconds <= 0) return 'Continuous';
+    final minutes = (seconds / 60).round();
+    return 'Every $minutes min';
   }
 
   void _showWipeConfirmation() {

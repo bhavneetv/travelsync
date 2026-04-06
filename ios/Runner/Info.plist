@@ -46,12 +46,16 @@
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>TravelSync needs your location to track your trips on the map.</string>
+	<string>TrailSync needs your location to show your position on the map and track your trips.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>TravelSync uses your location to keep trip tracking active while you travel.</string>
+	<string>TrailSync uses your location 24/7 (with your permission) to automatically record every route and place you visit — even when the app is closed.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>TrailSync uses your location 24/7 (with your permission) to automatically record every route even when the app is closed.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
+		<string>fetch</string>
+		<string>processing</string>
 	</array>
 </dict>
 </plist>

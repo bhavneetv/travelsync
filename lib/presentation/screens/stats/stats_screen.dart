@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../../core/constants.dart';
 import '../../../core/theme.dart';
+import '../../../services/location_service.dart';
 import '../../../services/xp_service.dart';
 
 // ─── Providers ───────────────────────────────────────────────────────────────
@@ -120,13 +121,21 @@ class _StatsScreenState extends ConsumerState<StatsScreen>
   @override
   Widget build(BuildContext context) {
     final statsAsync = ref.watch(travelStatsProvider);
+    final isTracking = ref.watch(isTrackingProvider);
+    final liveRouteKm = ref.watch(accumulatedDistanceKmProvider);
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
         backgroundColor: const Color(0xFF0A0A0F),
         body: statsAsync.when(
-          data: (stats) => _buildBody(context, stats),
+          data: (stats) {
+            final adjustedStats = Map<String, dynamic>.from(stats);
+            final persisted = (adjustedStats['totalDistance'] as num?)?.toDouble() ?? 0;
+            adjustedStats['totalDistance'] =
+                persisted + (isTracking ? liveRouteKm : 0);
+            return _buildBody(context, adjustedStats);
+          },
           loading: () => const _LoadingView(),
           error: (e, _) => _ErrorView(error: e.toString()),
         ),

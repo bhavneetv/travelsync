@@ -287,7 +287,10 @@ class _ProfileSettingsScreenState
 
     try {
       // Prevent background tracking from writing new rows during wipe.
-      await ref.read(locationServiceProvider).stopTracking();
+      await ref.read(locationServiceProvider).stopTracking(
+        completeRoute: false,
+        markDestination: false,
+          );
 
       final memories = await AppConstants.supabase
           .from('travel_memories')

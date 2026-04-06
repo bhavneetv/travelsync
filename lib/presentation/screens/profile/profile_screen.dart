@@ -3,8 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/constants.dart';
-import '../../../core/theme.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/location_service.dart';
 import '../../../services/xp_service.dart';
 import '../../../data/models/visited_place.dart';
 
@@ -28,6 +28,23 @@ final achievementsProvider =
   return (data as List).map((a) => Achievement.fromJson(a)).toList();
 });
 
+final profileDistanceKmProvider = FutureProvider.autoDispose<double>((ref) async {
+  final userId = AppConstants.supabase.auth.currentUser?.id;
+  if (userId == null) return 0;
+
+  final rows = await AppConstants.supabase
+      .from('routes')
+      .select('distance_km')
+      .eq('user_id', userId)
+      .not('distance_km', 'is', null);
+
+  var total = 0.0;
+  for (final row in rows as List) {
+    total += (row['distance_km'] as num?)?.toDouble() ?? 0.0;
+  }
+  return total;
+});
+
 // ─── Badge catalogue (order matches icon row) ────────────────────────────────
 const _catalogKeys = [
   'early_bird',
@@ -46,6 +63,9 @@ class ProfileScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final userAsync = ref.watch(currentUserProvider);
     final achievementsAsync = ref.watch(achievementsProvider);
+    final isTracking = ref.watch(isTrackingProvider);
+    final liveRouteKm = ref.watch(accumulatedDistanceKmProvider);
+    final persistedDistanceAsync = ref.watch(profileDistanceKmProvider);
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
@@ -63,6 +83,8 @@ class ProfileScreen extends ConsumerWidget {
             final level = user.travelLevel;
             final progress = XPService.levelProgress(user.totalXp);
             final displayName = user.fullName ?? user.username;
+            final distanceKm = persistedDistanceAsync.valueOrNull ??
+              (user.totalDistanceKm + (isTracking ? liveRouteKm : 0));
 
             return CustomScrollView(
               physics: const BouncingScrollPhysics(),
@@ -122,7 +144,7 @@ class ProfileScreen extends ConsumerWidget {
                         countries: user.countriesVisited,
                         cities: user.citiesVisited,
                         villages: user.villagesVisited,
-                        km: user.totalDistanceKm,
+                        km: distanceKm,
                         onTap: () => context.push('/memories'),
                       ),
                       const SizedBox(height: 28),
@@ -438,7 +460,7 @@ class _QuickStats extends StatelessWidget {
         const SizedBox(width: 8),
         _StatPill(
           icon: Icons.straighten_rounded,
-          value: km.toStringAsFixed(0),
+          value: km.toStringAsFixed(1),
           label: 'KM',
           color: const Color(0xFFFFD166),
         ),

@@ -145,11 +145,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final isTracking = ref.read(isTrackingProvider);
 
     if (isTracking) {
-      await locService.stopTracking();
+      await locService.stopTracking(
+        completeRoute: true,
+        markDestination: true,
+      );
       if (mounted) {
         messenger.showSnackBar(
           const SnackBar(
-            content: Text('Tracking paused. Route will complete at destination.'),
+            content: Text('Tracking turned off. Route destination has been saved.'),
           ),
         );
       }
@@ -494,6 +497,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Widget build(BuildContext context) {
     final position = ref.watch(currentPositionProvider);
     final isTracking = ref.watch(isTrackingProvider);
+    final compactTopBar = MediaQuery.of(context).size.width < 390;
 
     final center = position != null
         ? LatLng(position.latitude, position.longitude)
@@ -600,8 +604,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   // Right cluster: Profile | GPS | Settings
                   Row(
                     children: [
+                      if (isTracking && !compactTopBar) ...[
+                        const _LiveDistanceChip(),
+                        const SizedBox(width: 8),
+                      ],
+
                       // Profile avatar
-                      const _ProfileButton(),
+                      _ProfileButton(compact: compactTopBar),
 
                       const SizedBox(width: 8),
 
@@ -828,8 +837,40 @@ class _WeatherChip extends ConsumerWidget {
   }
 }
 
+class _LiveDistanceChip extends ConsumerWidget {
+  const _LiveDistanceChip();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final km = ref.watch(accumulatedDistanceKmProvider);
+    return _GlassChip(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            CupertinoIcons.speedometer,
+            color: Color(0xFFFFD60A),
+            size: 14,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            '${km.toStringAsFixed(2)} km',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+              letterSpacing: -0.3,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ProfileButton extends ConsumerWidget {
-  const _ProfileButton();
+  final bool compact;
+  const _ProfileButton({this.compact = false});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -864,31 +905,39 @@ class _ProfileButton extends ConsumerWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 7),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  user?.fullName ?? user?.username ?? 'Traveler',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                    letterSpacing: -0.3,
+            if (!compact) ...[
+              const SizedBox(width: 7),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 120),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      user?.fullName ?? user?.username ?? 'Traveler',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        letterSpacing: -0.3,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      'Lv.${user?.travelLevel ?? 1} · ${XPService.getLevelName(user?.travelLevel ?? 1)}',
+                      style: const TextStyle(
+                        color: Color(0xFFFFD60A),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                   ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  'Lv.${user?.travelLevel ?? 1} · ${XPService.getLevelName(user?.travelLevel ?? 1)}',
-                  style: const TextStyle(
-                    color: Color(0xFFFFD60A),
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ],
         ),
       ),

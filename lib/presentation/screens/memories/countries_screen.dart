@@ -21,8 +21,16 @@ final visitedCountriesProvider =
   return List<Map<String, dynamic>>.from(data);
 });
 
-class CountriesScreen extends ConsumerWidget {
+class CountriesScreen extends ConsumerStatefulWidget {
   const CountriesScreen({super.key});
+
+  @override
+  ConsumerState<CountriesScreen> createState() => _CountriesScreenState();
+}
+
+class _CountriesScreenState extends ConsumerState<CountriesScreen> {
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
 
   String _countryFlag(String? countryCode) {
     if (countryCode == null || countryCode.trim().length < 2) return '🌍';
@@ -31,27 +39,52 @@ class CountriesScreen extends ConsumerWidget {
     return flag;
   }
 
+  bool _isRecent(Map<String, dynamic> row) {
+    DateTime? timestamp;
+    const keys = [
+      'last_visited_at',
+      'updated_at',
+      'first_visited_at',
+      'created_at',
+    ];
+    for (final key in keys) {
+      final raw = row[key];
+      if (raw is String) {
+        timestamp = DateTime.tryParse(raw);
+        if (timestamp != null) break;
+      }
+    }
+    if (timestamp == null) return false;
+    return DateTime.now().difference(timestamp.toLocal()) <=
+        const Duration(hours: 24);
+  }
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final countriesAsync = ref.watch(visitedCountriesProvider);
 
     return Scaffold(
       body: CustomScrollView(
         slivers: [
-          // Beautiful header
           SliverAppBar(
-            expandedHeight: 180,
+            expandedHeight: 130,
             pinned: true,
             backgroundColor: AppColors.darkBg,
             flexibleSpace: FlexibleSpaceBar(
               title: const Text(
                 'My Travels',
-                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 22),
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20),
               ),
               background: Container(
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [Color(0xFF6C63FF), Color(0xFF3B2FA5)],
+                    colors: [Color(0xFF246BFD), Color(0xFF123D8D)],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
@@ -59,21 +92,12 @@ class CountriesScreen extends ConsumerWidget {
                 child: Stack(
                   children: [
                     Positioned(
-                      right: -30,
-                      top: -20,
+                      right: -24,
+                      top: -12,
                       child: Icon(
                         Icons.flight_rounded,
-                        size: 200,
+                        size: 150,
                         color: Colors.white.withValues(alpha: 0.08),
-                      ),
-                    ),
-                    Positioned(
-                      left: -20,
-                      bottom: -10,
-                      child: Icon(
-                        Icons.public_rounded,
-                        size: 120,
-                        color: Colors.white.withValues(alpha: 0.06),
                       ),
                     ),
                   ],
@@ -82,9 +106,56 @@ class CountriesScreen extends ConsumerWidget {
             ),
           ),
 
-          // Content
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: TextField(
+                controller: _searchController,
+                onChanged: (value) => setState(() => _searchQuery = value),
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  hintText: 'Search country',
+                  hintStyle: TextStyle(
+                    color: AppColors.textSecondary.withValues(alpha: 0.8),
+                  ),
+                  prefixIcon: const Icon(Icons.search_rounded,
+                      color: AppColors.textSecondary),
+                  suffixIcon: _searchQuery.isEmpty
+                      ? null
+                      : IconButton(
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() => _searchQuery = '');
+                          },
+                          icon: const Icon(Icons.close_rounded,
+                              color: AppColors.textSecondary),
+                        ),
+                  filled: true,
+                  fillColor: AppColors.darkCard,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+            ),
+          ),
+
           countriesAsync.when(
             data: (countries) {
+              final query = _searchQuery.trim().toLowerCase();
+              final filtered = countries.where((country) {
+                if (query.isEmpty) return true;
+                final name = (country['name'] as String? ?? '').toLowerCase();
+                final code =
+                    (country['country_code'] as String? ?? '').toLowerCase();
+                return name.contains(query) || code.contains(query);
+              }).toList();
+
+              final recent =
+                  filtered.where((country) => _isRecent(country)).toList();
+                final all = List<Map<String, dynamic>>.from(filtered);
+
               if (countries.isEmpty) {
                 return SliverFillRemaining(
                   child: Center(
@@ -101,7 +172,7 @@ class CountriesScreen extends ConsumerWidget {
                           'No countries visited yet',
                           style: TextStyle(
                             color: AppColors.textSecondary,
-                            fontSize: 18,
+                            fontSize: 16,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -110,7 +181,7 @@ class CountriesScreen extends ConsumerWidget {
                           'Start tracking your journeys!',
                           style: TextStyle(
                             color: AppColors.textSecondary.withValues(alpha: 0.7),
-                            fontSize: 14,
+                            fontSize: 13,
                           ),
                         ),
                       ],
@@ -119,32 +190,113 @@ class CountriesScreen extends ConsumerWidget {
                 );
               }
 
-              return SliverPadding(
-                padding: const EdgeInsets.all(16),
-                sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      final country = countries[index];
-                      final name = country['name'] as String? ?? 'Unknown';
-                      final code = country['country_code'] as String?;
-                      final visitCount = country['visit_count'] as int? ?? 1;
-
-                      return _CountryCard(
-                        name: name,
-                        countryCode: code,
-                        flag: _countryFlag(code),
-                        visitCount: visitCount,
-                        index: index,
-                        onTap: () {
-                          context.push(
-                            '/memories/states?country=$name&code=${code ?? ''}',
-                          );
-                        },
-                      );
-                    },
-                    childCount: countries.length,
+              if (filtered.isEmpty) {
+                return SliverFillRemaining(
+                  child: Center(
+                    child: Text(
+                      'No countries match your search',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
-                ),
+                );
+              }
+
+              return SliverMainAxisGroup(
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+                      child: _SectionTitle(
+                        title: 'Recent (24h)',
+                        count: recent.length,
+                      ),
+                    ),
+                  ),
+                  if (recent.isEmpty)
+                    const SliverToBoxAdapter(
+                      child: _EmptySection(text: 'No recent countries in last 24h'),
+                    )
+                  else
+                    SliverPadding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      sliver: SliverGrid(
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          mainAxisSpacing: 10,
+                          crossAxisSpacing: 10,
+                          childAspectRatio: 2.45,
+                        ),
+                        delegate: SliverChildBuilderDelegate(
+                          (context, index) {
+                            final country = recent[index];
+                            final name = country['name'] as String? ?? 'Unknown';
+                            final code = country['country_code'] as String?;
+                            final visitCount = country['visit_count'] as int? ?? 1;
+                            return _CountryMiniCard(
+                              name: name,
+                              countryCode: code,
+                              flag: _countryFlag(code),
+                              visitCount: visitCount,
+                              onTap: () {
+                                context.push(
+                                  '/memories/states?country=$name&code=${code ?? ''}',
+                                );
+                              },
+                            );
+                          },
+                          childCount: recent.length,
+                        ),
+                      ),
+                    ),
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
+                      child: _SectionTitle(title: 'All Countries', count: all.length),
+                    ),
+                  ),
+                  if (all.isEmpty)
+                    const SliverToBoxAdapter(
+                      child: _EmptySection(text: 'No more countries'),
+                    )
+                  else
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                      sliver: SliverGrid(
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          mainAxisSpacing: 10,
+                          crossAxisSpacing: 10,
+                          childAspectRatio: 2.45,
+                        ),
+                        delegate: SliverChildBuilderDelegate(
+                          (context, index) {
+                            final country = all[index];
+                            final name = country['name'] as String? ?? 'Unknown';
+                            final code = country['country_code'] as String?;
+                            final visitCount = country['visit_count'] as int? ?? 1;
+                            return _CountryMiniCard(
+                              name: name,
+                              countryCode: code,
+                              flag: _countryFlag(code),
+                              visitCount: visitCount,
+                              onTap: () {
+                                context.push(
+                                  '/memories/states?country=$name&code=${code ?? ''}',
+                                );
+                              },
+                            );
+                          },
+                          childCount: all.length,
+                        ),
+                      ),
+                    ),
+                ],
               );
             },
             loading: () => const SliverFillRemaining(
@@ -163,20 +315,18 @@ class CountriesScreen extends ConsumerWidget {
   }
 }
 
-class _CountryCard extends ConsumerWidget {
+class _CountryMiniCard extends ConsumerWidget {
   final String name;
   final String? countryCode;
   final String flag;
   final int visitCount;
-  final int index;
   final VoidCallback onTap;
 
-  const _CountryCard({
+  const _CountryMiniCard({
     required this.name,
     required this.countryCode,
     required this.flag,
     required this.visitCount,
-    required this.index,
     required this.onTap,
   });
 
@@ -196,115 +346,156 @@ class _CountryCard extends ConsumerWidget {
         ? AppColors.primary.withValues(alpha: 0.2)
         : AppColors.primary.withValues(alpha: 0.12);
 
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: 1),
-      duration: Duration(milliseconds: 400 + index * 100),
-      curve: Curves.easeOutCubic,
-      builder: (context, value, child) {
-        return Transform.translate(
-          offset: Offset(0, 30 * (1 - value)),
-          child: Opacity(opacity: value, child: child),
-        );
-      },
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 14),
-          decoration: BoxDecoration(
-            gradient: AppColors.cardGradient,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.primary.withValues(alpha: 0.1),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: AppColors.cardGradient,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Stack(
+            children: [
+              memoryAsync.when(
+                data: (memory) {
+                  if (memory == null) return const SizedBox.shrink();
+                  return Positioned.fill(
+                    child: CachedNetworkImage(
+                      imageUrl: memory.imageUrl,
+                      fit: BoxFit.cover,
+                      color: Colors.black.withValues(alpha: 0.58),
+                      colorBlendMode: BlendMode.darken,
+                    ),
+                  );
+                },
+                loading: () => const SizedBox.shrink(),
+                error: (_, __) => const SizedBox.shrink(),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: flagBgColor,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Center(
+                        child: Text(flag, style: const TextStyle(fontSize: 18)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: titleColor,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            '$visitCount visit${visitCount == 1 ? '' : 's'}',
+                            style: TextStyle(
+                              color: subtitleColor,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      width: 26,
+                      height: 26,
+                      decoration: BoxDecoration(
+                        color: arrowBgColor,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.arrow_forward_ios_rounded,
+                        color: AppColors.primary,
+                        size: 12,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(20),
-            child: Stack(
-              children: [
-                // Background memory image if available
-                memoryAsync.when(
-                  data: (memory) {
-                    if (memory == null) return const SizedBox.shrink();
-                    return Positioned.fill(
-                      child: CachedNetworkImage(
-                        imageUrl: memory.imageUrl,
-                        fit: BoxFit.cover,
-                        color: Colors.black.withValues(alpha: 0.55),
-                        colorBlendMode: BlendMode.darken,
-                      ),
-                    );
-                  },
-                  loading: () => const SizedBox.shrink(),
-                  error: (_, __) => const SizedBox.shrink(),
-                ),
-                // Content
-                Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Row(
-                    children: [
-                      // Flag
-                      Container(
-                        width: 56,
-                        height: 56,
-                        decoration: BoxDecoration(
-                          color: flagBgColor,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Center(
-                          child: Text(
-                            flag,
-                            style: const TextStyle(fontSize: 28),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      // Name and stats
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              name,
-                              style: TextStyle(
-                                color: titleColor,
-                                fontSize: 18,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '$visitCount visit${visitCount == 1 ? '' : 's'}',
-                              style: TextStyle(
-                                color: subtitleColor,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      // Arrow
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: arrowBgColor,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(
-                          Icons.arrow_forward_ios_rounded,
-                          color: AppColors.primary,
-                          size: 18,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  final String title;
+  final int count;
+
+  const _SectionTitle({required this.title, required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: AppColors.darkCard,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            '$count',
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
             ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _EmptySection extends StatelessWidget {
+  final String text;
+
+  const _EmptySection({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.darkCard,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          text,
+          style: TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 12,
           ),
         ),
       ),

@@ -39,6 +39,7 @@ class LocationService {
   String? _startCityName;
   DateTime? _lastRouteCreateAttempt;
   bool _isStopping = false;
+  bool _isCreatingRoute = false;
 
   // Destination detection fields
   Position?
@@ -100,17 +101,10 @@ class LocationService {
     _destinationCheckTimer = null;
     _isStopping = false;
 
-    final hasActiveRoute =
-        _ref.read(activeRouteIdProvider) != null && _routeStartTime != null;
-
     _ref.read(isTrackingProvider.notifier).state = true;
 
-    if (!hasActiveRoute) {
-      // Reset destination detection for a brand-new route only.
-      _stationaryAnchor = null;
-      _stationaryStartTime = null;
-      _destinationDetected = false;
-    }
+    _resetTrackingState();
+    _ref.read(isTrackingProvider.notifier).state = true;
 
     // Get starting position for route
     try {
@@ -120,26 +114,22 @@ class LocationService {
           timeLimit: Duration(seconds: 15),
         ),
       );
-      if (!hasActiveRoute) {
-        _lastRoutePosition = startPos;
-        _routeStartTime = DateTime.now();
-        _accumulatedDistanceKm = 0;
-        _ref.read(accumulatedDistanceKmProvider.notifier).state = 0.0;
-        _routePoints.clear();
-        _appendRoutePoint(startPos.latitude, startPos.longitude);
-        _ref.read(routePointsProvider.notifier).state = List.from(_routePoints);
+      _lastRoutePosition = startPos;
+      _routeStartTime = DateTime.now();
+      _accumulatedDistanceKm = 0;
+      _ref.read(accumulatedDistanceKmProvider.notifier).state = 0.0;
+      _routePoints.clear();
+      _appendRoutePoint(startPos.latitude, startPos.longitude);
+      _ref.read(routePointsProvider.notifier).state = List.from(_routePoints);
 
-        // Initialize destination detection anchor
-        _stationaryAnchor = startPos;
-        _stationaryStartTime = DateTime.now();
+      // Initialize destination detection anchor
+      _stationaryAnchor = startPos;
+      _stationaryStartTime = DateTime.now();
 
-        // Create a new route entry
+      // Resume an open route if one exists, otherwise create a new route.
+      final resumedOpenRoute = await _restoreOpenRouteIfAny();
+      if (!resumedOpenRoute) {
         await _startRoute(startPos);
-      } else {
-        // Resume paused tracking without creating a new route.
-        _lastRoutePosition = startPos;
-        _stationaryAnchor ??= startPos;
-        _stationaryStartTime ??= DateTime.now();
       }
     } catch (_) {
       // If we can't get start position, just continue without route
@@ -215,13 +205,14 @@ class LocationService {
               try {
                 await _savePosition(position);
                 _lastSavedPosition = position;
+                await _syncActiveRouteProgress();
               } catch (_) {
                 // Keep tracking alive even if one save attempt fails.
               }
             }
           },
           onError: (_, __) {
-            stopTracking();
+            stopTracking(completeRoute: true, markDestination: true);
           },
         );
 
@@ -257,14 +248,17 @@ class LocationService {
         if (elapsed >= _destinationDuration) {
           _destinationDetected = true;
           // Auto-stop tracking when destination is detected
-          stopTracking(completeRoute: true);
+          stopTracking(completeRoute: true, markDestination: true);
         }
       }
     }
   }
 
-  /// Stop tracking. Route is finalized only when destination condition is met.
-  Future<void> stopTracking({bool completeRoute = false}) async {
+  /// Stop tracking. Route finalization is opt-in and can mark destination.
+  Future<void> stopTracking({
+    bool completeRoute = false,
+    bool markDestination = false,
+  }) async {
     if (_isStopping) return;
     _isStopping = true;
 
@@ -274,6 +268,10 @@ class LocationService {
     _positionSubscription?.cancel();
     _positionSubscription = null;
     _ref.read(isTrackingProvider.notifier).state = false;
+
+    if (markDestination) {
+      _destinationDetected = true;
+    }
 
     if (completeRoute) {
       await _endRoute();
@@ -286,6 +284,10 @@ class LocationService {
   Future<void> _startRoute(Position position) async {
     final userId = AppConstants.supabase.auth.currentUser?.id;
     if (userId == null) return;
+    if (_ref.read(activeRouteIdProvider) != null) return;
+    if (_isCreatingRoute) return;
+
+    _isCreatingRoute = true;
 
     String? startCity;
     try {
@@ -318,6 +320,8 @@ class LocationService {
       _lastRouteCreateAttempt = DateTime.now();
     } catch (_) {
       // Non-critical - keep tracking and retry creating route later.
+    } finally {
+      _isCreatingRoute = false;
     }
   }
 
@@ -325,21 +329,72 @@ class LocationService {
   Future<void> _endRoute() async {
     var routeId = _ref.read(activeRouteIdProvider);
     final userId = AppConstants.supabase.auth.currentUser?.id;
+    var existingDistanceKm = 0.0;
 
     if (routeId == null && userId != null && _lastRoutePosition != null) {
-      await _startRoute(_lastRoutePosition!);
-      routeId = _ref.read(activeRouteIdProvider);
+      try {
+        final openRoute = await AppConstants.supabase
+            .from('routes')
+            .select('id')
+            .eq('user_id', userId)
+            .isFilter('ended_at', null)
+            .order('started_at', ascending: false)
+            .limit(1)
+            .maybeSingle();
+        if (openRoute != null) {
+          routeId = openRoute['id'] as int;
+          _ref.read(activeRouteIdProvider.notifier).state = routeId;
+        }
+      } catch (_) {
+        // Fallback to creating a route row if lookup fails.
+      }
     }
 
     if (routeId != null && userId != null) {
       try {
-        final currentPos = _ref.read(currentPositionProvider);
-        final duration = _routeStartTime != null
-            ? DateTime.now().difference(_routeStartTime!).inMinutes
-            : null;
+        final existing = await AppConstants.supabase
+            .from('routes')
+            .select('distance_km')
+            .eq('id', routeId)
+            .maybeSingle();
+        existingDistanceKm =
+            (existing?['distance_km'] as num?)?.toDouble() ?? 0.0;
+      } catch (_) {
+        existingDistanceKm = 0.0;
+      }
 
-        double? avgSpeed;
+      final currentPos = _ref.read(currentPositionProvider);
+      final duration = _routeStartTime != null
+          ? DateTime.now().difference(_routeStartTime!).inMinutes
+          : null;
 
+      if (currentPos != null) {
+        _appendRoutePoint(currentPos.latitude, currentPos.longitude);
+      }
+
+      // Use the best available distance estimate.
+      double? distanceKm = _accumulatedDistanceKm > 0
+          ? _accumulatedDistanceKm
+          : null;
+      final polylineDistanceKm = _computeRouteDistanceKm(_routePoints);
+      if (polylineDistanceKm > 0) {
+        if (distanceKm == null || polylineDistanceKm > distanceKm) {
+          distanceKm = polylineDistanceKm;
+        }
+      }
+      if (existingDistanceKm > 0) {
+        if (distanceKm == null || existingDistanceKm > distanceKm) {
+          distanceKm = existingDistanceKm;
+        }
+      }
+
+      double? avgSpeed;
+      if (distanceKm != null && duration != null && duration > 0) {
+        avgSpeed = distanceKm / (duration / 60); // km/h
+      }
+
+      String? endCityName;
+      try {
         // Reverse geocode end position to get end place.
         final geoData = currentPos != null
             ? await _nominatim.reverseGeocode(
@@ -347,32 +402,17 @@ class LocationService {
                 currentPos.longitude,
               )
             : <String, String?>{};
-        final endCityName = _resolvePrimaryPlaceName(geoData);
+        endCityName = _resolvePrimaryPlaceName(geoData);
+      } catch (_) {
+        // Non-critical: keep finalizing route even if geocode fails.
+      }
 
-        if (currentPos != null) {
-          _appendRoutePoint(currentPos.latitude, currentPos.longitude);
-        }
+      final startName = _startCityName ?? 'Unknown';
+      final endName = endCityName ?? 'Unknown';
+      final routeName = '$startName -> $endName';
+      final polylineJson = json.encode(_routePoints);
 
-        // Use the best available distance estimate.
-        double? distanceKm = _accumulatedDistanceKm > 0
-            ? _accumulatedDistanceKm
-            : null;
-        final polylineDistanceKm = _computeRouteDistanceKm(_routePoints);
-        if (polylineDistanceKm > 0) {
-          if (distanceKm == null || polylineDistanceKm > distanceKm) {
-            distanceKm = polylineDistanceKm;
-          }
-        }
-
-        if (distanceKm != null && duration != null && duration > 0) {
-          avgSpeed = distanceKm / (duration / 60); // km/h
-        }
-
-        final startName = _startCityName ?? 'Unknown';
-        final endName = endCityName ?? 'Unknown';
-        final routeName = '$startName -> $endName';
-        final polylineJson = json.encode(_routePoints);
-
+      try {
         await AppConstants.supabase
             .from('routes')
             .update({
@@ -388,9 +428,13 @@ class LocationService {
               'is_destination': _destinationDetected,
             })
             .eq('id', routeId);
+      } catch (_) {
+        // Non-critical: cumulative user distance is still updated below.
+      }
 
-        // Update total distance in user profile.
-        if (distanceKm != null && distanceKm > 0) {
+      // Update total distance in user profile.
+      if (distanceKm != null && distanceKm > 0) {
+        try {
           final user = await AppConstants.supabase
               .from('users')
               .select('total_distance_km')
@@ -402,13 +446,67 @@ class LocationService {
               .from('users')
               .update({'total_distance_km': currentDist + distanceKm})
               .eq('id', userId);
+        } catch (_) {
+          // Non-critical
         }
-      } catch (_) {
-        // Non-critical
       }
     }
 
     _resetTrackingState();
+  }
+
+  Future<bool> _restoreOpenRouteIfAny() async {
+    final userId = AppConstants.supabase.auth.currentUser?.id;
+    if (userId == null) return false;
+
+    try {
+      final openRoute = await AppConstants.supabase
+          .from('routes')
+          .select('id, started_at, start_city, distance_km')
+          .eq('user_id', userId)
+          .isFilter('ended_at', null)
+          .order('started_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+
+      if (openRoute == null) return false;
+
+      _ref.read(activeRouteIdProvider.notifier).state = openRoute['id'] as int;
+      _startCityName = openRoute['start_city'] as String?;
+
+      final startedAtRaw = openRoute['started_at'] as String?;
+      if (startedAtRaw != null && startedAtRaw.isNotEmpty) {
+        _routeStartTime = DateTime.tryParse(startedAtRaw) ?? DateTime.now();
+      }
+
+      _accumulatedDistanceKm =
+          (openRoute['distance_km'] as num?)?.toDouble() ?? 0.0;
+      _ref.read(accumulatedDistanceKmProvider.notifier).state =
+          _accumulatedDistanceKm;
+
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _syncActiveRouteProgress() async {
+    final routeId = _ref.read(activeRouteIdProvider);
+    if (routeId == null) return;
+
+    try {
+      await AppConstants.supabase
+          .from('routes')
+          .update({
+            'distance_km': _accumulatedDistanceKm > 0
+                ? _accumulatedDistanceKm
+                : null,
+            'polyline': json.encode(_routePoints),
+          })
+          .eq('id', routeId);
+    } catch (_) {
+      // Non-critical: final route close still persists canonical totals.
+    }
   }
 
   bool _shouldSavePosition(Position position) {
@@ -649,6 +747,19 @@ class LocationService {
     ) async {
       if (!_ref.read(isTrackingProvider) || _destinationDetected) return;
 
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        await stopTracking(completeRoute: true, markDestination: true);
+        return;
+      }
+
+      final permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        await stopTracking(completeRoute: true, markDestination: true);
+        return;
+      }
+
       Position? position = _ref.read(currentPositionProvider);
       if (position == null) {
         try {
@@ -742,13 +853,11 @@ class LocationService {
 
     final prevTs = previous.timestamp;
     final currTs = current.timestamp;
-    if (prevTs != null && currTs != null) {
-      final seconds = currTs.difference(prevTs).inSeconds;
-      if (seconds > 0) {
-        final speedMps = segmentMeters / seconds;
-        final speedKmh = speedMps * 3.6;
-        if (speedKmh > 220) return false;
-      }
+    final seconds = currTs.difference(prevTs).inSeconds;
+    if (seconds > 0) {
+      final speedMps = segmentMeters / seconds;
+      final speedKmh = speedMps * 3.6;
+      if (speedKmh > 220) return false;
     }
 
     return true;

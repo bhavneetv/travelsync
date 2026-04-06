@@ -109,7 +109,7 @@ class CityQuery {
   int get hashCode => stateName.hashCode ^ countryCode.hashCode;
 }
 
-class CitiesScreen extends ConsumerWidget {
+class CitiesScreen extends ConsumerStatefulWidget {
   final String stateName;
   final String countryName;
   final String countryCode;
@@ -122,19 +122,93 @@ class CitiesScreen extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<CitiesScreen> createState() => _CitiesScreenState();
+}
+
+class _CitiesScreenState extends ConsumerState<CitiesScreen> {
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  bool _isRecent(Map<String, dynamic> row) {
+    DateTime? timestamp;
+    const keys = [
+      'last_visited_at',
+      'updated_at',
+      'first_visited_at',
+      'created_at',
+    ];
+    for (final key in keys) {
+      final raw = row[key];
+      if (raw is String) {
+        timestamp = DateTime.tryParse(raw);
+        if (timestamp != null) break;
+      }
+    }
+    if (timestamp == null) return false;
+    return DateTime.now().difference(timestamp.toLocal()) <=
+        const Duration(hours: 24);
+  }
+
+  bool _matchesSearch(Map<String, dynamic> row) {
+    final query = _searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return true;
+    final name = (row['name'] as String? ?? '').toLowerCase();
+    return name.contains(query);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final citiesAsync = ref.watch(visitedCitiesForStateProvider(
-      CityQuery(stateName: stateName, countryCode: countryCode),
+      CityQuery(stateName: widget.stateName, countryCode: widget.countryCode),
     ));
     final villagesAsync = ref.watch(visitedVillagesForStateProvider(
-      CityQuery(stateName: stateName, countryCode: countryCode),
+      CityQuery(stateName: widget.stateName, countryCode: widget.countryCode),
     ));
+
+    final cities = citiesAsync.asData?.value ?? const <Map<String, dynamic>>[];
+    final villages =
+        villagesAsync.asData?.value ?? const <Map<String, dynamic>>[];
+    final isLoading = citiesAsync.isLoading || villagesAsync.isLoading;
+    final hasError = citiesAsync.hasError || villagesAsync.hasError;
+
+    final filteredCities = cities.where(_matchesSearch).toList();
+    final filteredVillages = villages.where(_matchesSearch).toList();
+
+    final recentCities = filteredCities.where(_isRecent).toList();
+    final recentVillages = filteredVillages.where(_isRecent).toList();
+
+    final allCities = List<Map<String, dynamic>>.from(filteredCities);
+    final allVillages = List<Map<String, dynamic>>.from(filteredVillages);
+
+    final recentMixed = <Map<String, dynamic>>[
+      ...recentCities.map((e) => {...e, '_type': 'city'}),
+      ...recentVillages.map((e) => {...e, '_type': 'village'}),
+    ];
+    recentMixed.sort((a, b) {
+      DateTime? aTime;
+      DateTime? bTime;
+      const keys = ['last_visited_at', 'updated_at', 'first_visited_at', 'created_at'];
+      for (final key in keys) {
+        final rawA = a[key];
+        final rawB = b[key];
+        aTime ??= rawA is String ? DateTime.tryParse(rawA) : null;
+        bTime ??= rawB is String ? DateTime.tryParse(rawB) : null;
+      }
+      return (bTime ?? DateTime.fromMillisecondsSinceEpoch(0))
+          .compareTo(aTime ?? DateTime.fromMillisecondsSinceEpoch(0));
+    });
 
     return Scaffold(
       body: CustomScrollView(
         slivers: [
           SliverAppBar(
-            expandedHeight: 150,
+            expandedHeight: 110,
             pinned: true,
             backgroundColor: AppColors.darkBg,
             leading: IconButton(
@@ -151,14 +225,14 @@ class CitiesScreen extends ConsumerWidget {
             ),
             flexibleSpace: FlexibleSpaceBar(
               title: Text(
-                stateName,
+                widget.stateName,
                 style: const TextStyle(
-                    fontWeight: FontWeight.w800, fontSize: 18),
+                    fontWeight: FontWeight.w800, fontSize: 17),
               ),
               background: Container(
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [Color(0xFF5B52E0), Color(0xFF3B2FA5)],
+                    colors: [Color(0xFF1F72E6), Color(0xFF0E458F)],
                     begin: Alignment.topRight,
                     end: Alignment.bottomLeft,
                   ),
@@ -183,13 +257,13 @@ class CitiesScreen extends ConsumerWidget {
           // Breadcrumb
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
               child: Row(
                 children: [
                   GestureDetector(
                     onTap: () => context.go('/memories'),
                     child: Text(
-                      countryName,
+                      widget.countryName,
                       style: TextStyle(
                         color: AppColors.primary,
                         fontSize: 13,
@@ -200,7 +274,7 @@ class CitiesScreen extends ConsumerWidget {
                   Icon(Icons.chevron_right_rounded,
                       color: AppColors.textSecondary, size: 18),
                   Text(
-                    stateName,
+                    widget.stateName,
                     style: TextStyle(
                       color: AppColors.textSecondary,
                       fontSize: 13,
@@ -212,67 +286,131 @@ class CitiesScreen extends ConsumerWidget {
             ),
           ),
 
-          // Cities section header
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-              child: Text(
-                '🏙️ Cities & Towns',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+              child: TextField(
+                controller: _searchController,
+                onChanged: (value) => setState(() => _searchQuery = value),
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  hintText: 'Search city or village',
+                  hintStyle:
+                      TextStyle(color: AppColors.textSecondary.withValues(alpha: 0.8)),
+                  prefixIcon: const Icon(Icons.search_rounded,
+                      color: AppColors.textSecondary),
+                  suffixIcon: _searchQuery.isEmpty
+                      ? null
+                      : IconButton(
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() => _searchQuery = '');
+                          },
+                          icon: const Icon(Icons.close_rounded,
+                              color: AppColors.textSecondary),
+                        ),
+                  filled: true,
+                  fillColor: AppColors.darkCard,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide.none,
+                  ),
                 ),
               ),
             ),
           ),
 
-          citiesAsync.when(
-            data: (cities) {
-              if (cities.isEmpty) {
-                return SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                    child: Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: AppColors.darkCard,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.location_city_rounded,
-                              color: AppColors.textSecondary.withValues(alpha: 0.4),
-                              size: 32),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              'No cities recorded yet',
-                              style: TextStyle(
-                                color: AppColors.textSecondary,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              }
-
-              return SliverPadding(
+          if (isLoading && cities.isEmpty && villages.isEmpty)
+            const SliverFillRemaining(
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (hasError && cities.isEmpty && villages.isEmpty)
+            SliverFillRemaining(
+              child: Center(
+                child: Text(
+                  'Could not load places',
+                  style: TextStyle(color: AppColors.textSecondary),
+                ),
+              ),
+            )
+          else ...[
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+                child: _SectionTitle(
+                  title: 'Recent (24h)',
+                  count: recentMixed.length,
+                ),
+              ),
+            ),
+            if (recentMixed.isEmpty)
+              const SliverToBoxAdapter(
+                child: _EmptySection(text: 'No recent places in last 24h'),
+              )
+            else
+              SliverPadding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 sliver: SliverGrid(
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: 2,
-                    mainAxisSpacing: 12,
-                    crossAxisSpacing: 12,
-                    childAspectRatio: 0.85,
+                    mainAxisSpacing: 8,
+                    crossAxisSpacing: 8,
+                    childAspectRatio: 1.55,
                   ),
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {
-                      final city = cities[index];
+                      final place = recentMixed[index];
+                      final isVillage = place['_type'] == 'village';
+                      final name = place['name'] as String? ?? 'Unknown';
+                      final visitCount = place['visit_count'] as int? ?? 1;
+                      final lat = (place['lat'] as num?)?.toDouble();
+                      final lng = (place['lng'] as num?)?.toDouble();
+
+                      return _PlaceCard(
+                        name: name,
+                        visitCount: visitCount,
+                        index: index,
+                        icon: isVillage
+                            ? Icons.holiday_village_rounded
+                            : Icons.location_city_rounded,
+                        iconColor:
+                            isVillage ? AppColors.success : AppColors.accentLight,
+                        placeType: isVillage ? 'village' : 'city',
+                        onTap: () {
+                          context.push(
+                            '/memories/place?city=$name&type=${isVillage ? 'village' : 'city'}&state=${widget.stateName}&country=${widget.countryName}&code=${widget.countryCode}&lat=${lat ?? ''}&lng=${lng ?? ''}',
+                          );
+                        },
+                      );
+                    },
+                    childCount: recentMixed.length,
+                  ),
+                ),
+              ),
+
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 18, 16, 10),
+                child: _SectionTitle(title: 'All Cities', count: allCities.length),
+              ),
+            ),
+            if (allCities.isEmpty)
+              const SliverToBoxAdapter(
+                child: _EmptySection(text: 'No more cities'),
+              )
+            else
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                sliver: SliverGrid(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    mainAxisSpacing: 8,
+                    crossAxisSpacing: 8,
+                    childAspectRatio: 1.55,
+                  ),
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      final city = allCities[index];
                       final name = city['name'] as String? ?? 'Unknown';
                       final visitCount = city['visit_count'] as int? ?? 1;
                       final lat = (city['lat'] as num?)?.toDouble();
@@ -287,88 +425,40 @@ class CitiesScreen extends ConsumerWidget {
                         placeType: 'city',
                         onTap: () {
                           context.push(
-                            '/memories/place?city=$name&type=city&state=$stateName&country=$countryName&code=$countryCode&lat=${lat ?? ''}&lng=${lng ?? ''}',
+                            '/memories/place?city=$name&type=city&state=${widget.stateName}&country=${widget.countryName}&code=${widget.countryCode}&lat=${lat ?? ''}&lng=${lng ?? ''}',
                           );
                         },
                       );
                     },
-                    childCount: cities.length,
+                    childCount: allCities.length,
                   ),
                 ),
-              );
-            },
-            loading: () => const SliverToBoxAdapter(
+              ),
+
+            SliverToBoxAdapter(
               child: Padding(
-                padding: EdgeInsets.all(32),
-                child: Center(child: CircularProgressIndicator()),
+                padding: const EdgeInsets.fromLTRB(16, 18, 16, 10),
+                child:
+                    _SectionTitle(title: 'All Villages', count: allVillages.length),
               ),
             ),
-            error: (e, _) => SliverToBoxAdapter(
-              child: Center(child: Text('Error: $e')),
-            ),
-          ),
-
-          // Villages section header
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
-              child: Text(
-                '🏘️ Villages & Hamlets',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ),
-
-          villagesAsync.when(
-            data: (villages) {
-              if (villages.isEmpty) {
-                return SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    child: Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: AppColors.darkCard,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.holiday_village_rounded,
-                              color: AppColors.textSecondary.withValues(alpha: 0.4),
-                              size: 32),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              'No villages recorded yet',
-                              style: TextStyle(
-                                color: AppColors.textSecondary,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              }
-
-              return SliverPadding(
+            if (allVillages.isEmpty)
+              const SliverToBoxAdapter(
+                child: _EmptySection(text: 'No more villages'),
+              )
+            else
+              SliverPadding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 sliver: SliverGrid(
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: 2,
-                    mainAxisSpacing: 12,
-                    crossAxisSpacing: 12,
-                    childAspectRatio: 0.85,
+                    mainAxisSpacing: 8,
+                    crossAxisSpacing: 8,
+                    childAspectRatio: 1.55,
                   ),
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {
-                      final village = villages[index];
+                      final village = allVillages[index];
                       final name = village['name'] as String? ?? 'Unknown';
                       final visitCount = village['visit_count'] as int? ?? 1;
                       final lat = (village['lat'] as num?)?.toDouble();
@@ -383,29 +473,17 @@ class CitiesScreen extends ConsumerWidget {
                         placeType: 'village',
                         onTap: () {
                           context.push(
-                            '/memories/place?city=$name&type=village&state=$stateName&country=$countryName&code=$countryCode&lat=${lat ?? ''}&lng=${lng ?? ''}',
+                            '/memories/place?city=$name&type=village&state=${widget.stateName}&country=${widget.countryName}&code=${widget.countryCode}&lat=${lat ?? ''}&lng=${lng ?? ''}',
                           );
                         },
                       );
                     },
-                    childCount: villages.length,
+                    childCount: allVillages.length,
                   ),
                 ),
-              );
-            },
-            loading: () => const SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.all(32),
-                child: Center(child: CircularProgressIndicator()),
               ),
-            ),
-            error: (e, _) => SliverToBoxAdapter(
-              child: Center(child: Text('Error: $e')),
-            ),
-          ),
-
-          // Bottom spacing
-          const SliverToBoxAdapter(child: SizedBox(height: 40)),
+            const SliverToBoxAdapter(child: SizedBox(height: 24)),
+          ],
         ],
       ),
     );
@@ -456,17 +534,17 @@ class _PlaceCard extends ConsumerWidget {
         child: Container(
           decoration: BoxDecoration(
             gradient: AppColors.cardGradient,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(14),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.15),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
               ),
             ],
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(14),
             child: Stack(
               children: [
                 // Background memory image
@@ -487,42 +565,42 @@ class _PlaceCard extends ConsumerWidget {
                 ),
                 // Content
                 Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(10),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       Container(
-                        width: 44,
-                        height: 44,
+                        width: 28,
+                        height: 28,
                         decoration: BoxDecoration(
                           color: iconColor.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Icon(icon, color: iconColor, size: 22),
+                        child: Icon(icon, color: iconColor, size: 15),
                       ),
                       const Spacer(),
                       Text(
                         name,
                         style: TextStyle(
                           color: titleColor,
-                          fontSize: 15,
+                          fontSize: 12,
                           fontWeight: FontWeight.w700,
                         ),
-                        maxLines: 2,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 1),
                       Row(
                         children: [
                           Icon(Icons.visibility_rounded,
-                              color: AppColors.textSecondary, size: 14),
-                          const SizedBox(width: 4),
+                              color: AppColors.textSecondary, size: 12),
+                          const SizedBox(width: 3),
                           Text(
                             '$visitCount visit${visitCount == 1 ? '' : 's'}',
                             style: TextStyle(
                               color: subtitleColor,
-                              fontSize: 11,
+                              fontSize: 9,
                             ),
                           ),
                         ],
@@ -532,6 +610,72 @@ class _PlaceCard extends ConsumerWidget {
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  final String title;
+  final int count;
+
+  const _SectionTitle({required this.title, required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: AppColors.darkCard,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            '$count',
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _EmptySection extends StatelessWidget {
+  final String text;
+
+  const _EmptySection({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.darkCard,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          text,
+          style: TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 12,
           ),
         ),
       ),
