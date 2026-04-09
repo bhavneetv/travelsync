@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../core/constants.dart';
 import '../../../core/theme.dart';
 import '../../../services/memory_service.dart';
+import '../../../services/haptic_service.dart';
 
 /// Provider to fetch visited states filtered by country code
 final visitedStatesProvider = FutureProvider.autoDispose
@@ -88,7 +89,10 @@ class _StatesScreenState extends ConsumerState<StatesScreen> {
             leading: IconButton(
               icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
               color: AppColors.textSecondary,
-              onPressed: () => context.pop(),
+              onPressed: () async {
+                await HapticService.selection();
+                if (context.mounted) context.pop();
+              },
             ),
             title: Text(
               widget.countryName,
@@ -206,6 +210,7 @@ class _StatesScreenState extends ConsumerState<StatesScreen> {
                               countryName: widget.countryName,
                               visitCount: visitCount,
                               onTap: () {
+                                HapticService.selection();
                                 context.push(
                                   '/memories/cities?state=$name&country=${widget.countryName}&code=${widget.countryCode}',
                                 );
@@ -252,6 +257,7 @@ class _StatesScreenState extends ConsumerState<StatesScreen> {
                               countryName: widget.countryName,
                               visitCount: visitCount,
                               onTap: () {
+                                HapticService.selection();
                                 context.push(
                                   '/memories/cities?state=$name&country=${widget.countryName}&code=${widget.countryCode}',
                                 );

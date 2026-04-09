@@ -67,7 +67,11 @@ class _BootstrapAppState extends State<_BootstrapApp> {
     // 3. Auto-resume background tracking if the user had it enabled before.
     final prefs = await SharedPreferences.getInstance();
     final alwaysOn = prefs.getBool('always_on_tracking') ?? false;
-    final interval = prefs.getInt('tracking_interval_seconds') ?? 0;
+    var interval = prefs.getInt('tracking_interval_seconds') ?? 300;
+    if (interval <= 0) {
+      interval = 300;
+      await prefs.setInt('tracking_interval_seconds', interval);
+    }
     if (alwaysOn) {
       final isRunning = await BackgroundLocationService.isRunning;
       if (!isRunning) {

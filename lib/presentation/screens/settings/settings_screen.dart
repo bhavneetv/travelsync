@@ -104,6 +104,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 subtitle: _intervalLabel(intervalSeconds),
                 onTap: () => _showIntervalPicker(),
               ),
+              _SettingsTile(
+                icon: Icons.route_rounded,
+                title: 'End Active Route',
+                subtitle: 'Stop tracking now and close current route',
+                onTap: () => _endActiveRouteNow(),
+              ),
             ]),
             const SizedBox(height: 24),
 
@@ -313,9 +319,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       color: AppColors.textPrimary,
                     )),
                 subtitle: Text(
-                  interval.seconds == 0
+                  interval.seconds <= 60
                       ? 'Highest accuracy, more battery use'
-                      : 'Lower battery use',
+                      : 'Balanced battery use',
                   style: GoogleFonts.inter(
                     color: AppColors.textSecondary,
                     fontSize: 12,
@@ -418,20 +424,39 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
 
     if (permission == LocationPermission.whileInUse) {
-      permission = await Geolocator.requestPermission();
+      await Permission.locationAlways.request();
+      permission = await Geolocator.checkPermission();
       if (permission != LocationPermission.always) {
         return false;
       }
     }
 
-    await Permission.notification.request();
+    final notif = await Permission.notification.request();
+    if (notif.isDenied || notif.isPermanentlyDenied) {
+      // Keep tracking allowed, but caller can still notify user about alerts.
+    }
     return true;
   }
 
   String _intervalLabel(int seconds) {
-    if (seconds <= 0) return 'Continuous';
+    if (seconds < 60) return 'Every ${seconds}s';
     final minutes = (seconds / 60).round();
     return 'Every $minutes min';
+  }
+
+  Future<void> _endActiveRouteNow() async {
+    final messenger = ScaffoldMessenger.of(context);
+    await ref.read(locationServiceProvider).stopTracking(
+          completeRoute: true,
+          markDestination: true,
+        );
+    await ref.read(alwaysOnTrackingProvider.notifier).set(false);
+    await BackgroundLocationService.stop();
+
+    if (!mounted) return;
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Tracking stopped and route ended.')),
+    );
   }
 
   void _showWipeConfirmation() {
@@ -509,82 +534,45 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           .whereType<String>()
           .toList();
 
-      final failedTables = <String>[];
+      final failedOps = <String>[];
 
-      Future<void> deleteByUserId(String table, {int maxAttempts = 3}) async {
-        Object? lastError;
-        for (var attempt = 1; attempt <= maxAttempts; attempt++) {
-          try {
-            await AppConstants.supabase.from(table).delete().eq('user_id', uid);
-
-            final remaining = await AppConstants.supabase
-                .from(table)
-                .select('id')
-                .eq('user_id', uid)
-                .limit(1);
-
-            if ((remaining as List).isEmpty) {
-              return;
-            }
-          } catch (e) {
-            lastError = e;
-          }
+      try {
+        final result = await AppConstants.supabase
+            .rpc('wipe_travel_data_for_current_user');
+        final ok = result is Map<String, dynamic>
+            ? (result['ok'] as bool? ?? false)
+            : true;
+        if (!ok) {
+          failedOps.add('database wipe');
         }
-
-        if (lastError != null) {
-          failedTables.add('$table (${_compactError(lastError)})');
-        } else {
-          failedTables.add('$table (rows still present)');
-        }
+      } catch (e) {
+        failedOps.add('database (${_compactError(e)})');
       }
-
-      await deleteByUserId('travel_logs');
-      await deleteByUserId('routes');
-      await deleteByUserId('visited_cities');
-      await deleteByUserId('visited_countries');
-      await deleteByUserId('visited_villages');
-      await deleteByUserId('visited_states');
-      await deleteByUserId('travel_memories');
-      await deleteByUserId('achievements');
-      await deleteByUserId('xp_history');
 
       if (memoryPaths.isNotEmpty) {
         try {
           await AppConstants.supabase.storage.from('memories').remove(memoryPaths);
         } catch (e) {
-          failedTables.add('memories (storage: ${_compactError(e)})');
+          failedOps.add('memories (storage: ${_compactError(e)})');
         }
-      }
-
-      try {
-        await AppConstants.supabase.from('users').update({
-          'total_distance_km': 0,
-          'countries_visited': 0,
-          'cities_visited': 0,
-          'villages_visited': 0,
-          'total_xp': 0,
-          'travel_level': 1,
-        }).eq('id', uid);
-      } catch (e) {
-        failedTables.add('users (counters: ${_compactError(e)})');
       }
 
       ref.invalidate(currentUserProvider);
 
       if (!mounted) return;
 
-      if (failedTables.isEmpty) {
+      if (failedOps.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('All travel data wiped successfully')),
         );
       } else {
-        final brief = failedTables.take(3).join(', ');
-        final hasMore = failedTables.length > 3;
+        final brief = failedOps.take(3).join(', ');
+        final hasMore = failedOps.length > 3;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
               hasMore
-                  ? 'Wipe incomplete: $brief (+${failedTables.length - 3} more)'
+                  ? 'Wipe incomplete: $brief (+${failedOps.length - 3} more)'
                   : 'Wipe incomplete: $brief',
             ),
           ),

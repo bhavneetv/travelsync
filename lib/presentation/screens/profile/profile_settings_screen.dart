@@ -351,44 +351,20 @@ class _ProfileSettingsScreenState
           .whereType<String>()
           .toList();
 
-      final failedTables = <String>[];
+      final failedOps = <String>[];
 
-      Future<void> deleteByUserId(String table, {int maxAttempts = 3}) async {
-        Object? lastError;
-        for (var attempt = 1; attempt <= maxAttempts; attempt++) {
-          try {
-            await AppConstants.supabase.from(table).delete().eq('user_id', uid);
-
-            final remaining = await AppConstants.supabase
-                .from(table)
-                .select('id')
-                .eq('user_id', uid)
-                .limit(1);
-
-            if ((remaining as List).isEmpty) {
-              return;
-            }
-          } catch (e) {
-            lastError = e;
-          }
+      try {
+        final result = await AppConstants.supabase
+            .rpc('wipe_travel_data_for_current_user');
+        final ok = result is Map<String, dynamic>
+            ? (result['ok'] as bool? ?? false)
+            : true;
+        if (!ok) {
+          failedOps.add('database wipe');
         }
-
-        if (lastError != null) {
-          failedTables.add('$table (${_compactError(lastError)})');
-        } else {
-          failedTables.add('$table (rows still present)');
-        }
+      } catch (e) {
+        failedOps.add('database (${_compactError(e)})');
       }
-
-      await deleteByUserId('travel_logs');
-      await deleteByUserId('routes');
-      await deleteByUserId('visited_cities');
-      await deleteByUserId('visited_countries');
-      await deleteByUserId('visited_villages');
-      await deleteByUserId('visited_states');
-      await deleteByUserId('travel_memories');
-      await deleteByUserId('achievements');
-      await deleteByUserId('xp_history');
 
       if (memoryPaths.isNotEmpty) {
         try {
@@ -396,55 +372,22 @@ class _ProfileSettingsScreenState
               .from('memories')
               .remove(memoryPaths);
         } catch (e) {
-          failedTables.add('memories (storage: ${_compactError(e)})');
+          failedOps.add('memories (storage: ${_compactError(e)})');
         }
-      }
-
-      try {
-        await AppConstants.supabase.from('users').update({
-          'total_distance_km': 0,
-          'countries_visited': 0,
-          'cities_visited': 0,
-          'villages_visited': 0,
-          'total_xp': 0,
-          'travel_level': 1,
-        }).eq('id', uid);
-
-        final user = await AppConstants.supabase
-            .from('users')
-            .select(
-              'total_distance_km, countries_visited, cities_visited, villages_visited, total_xp, travel_level',
-            )
-            .eq('id', uid)
-            .single();
-
-        final countersAreZero =
-            (user['total_distance_km'] as num?) == 0 &&
-            (user['countries_visited'] as int?) == 0 &&
-            (user['cities_visited'] as int?) == 0 &&
-            (user['villages_visited'] as int?) == 0 &&
-            (user['total_xp'] as int?) == 0 &&
-            (user['travel_level'] as int?) == 1;
-
-        if (!countersAreZero) {
-          failedTables.add('users (counters not reset)');
-        }
-      } catch (e) {
-        failedTables.add('users (counters: ${_compactError(e)})');
       }
 
       ref.invalidate(currentUserProvider);
 
       if (context.mounted) {
-        if (failedTables.isEmpty) {
+        if (failedOps.isEmpty) {
           _toast(context, 'Travel data wiped', success: true);
         } else {
-          final brief = failedTables.take(3).join(', ');
-          final hasMore = failedTables.length > 3;
+          final brief = failedOps.take(3).join(', ');
+          final hasMore = failedOps.length > 3;
           _toast(
             context,
             hasMore
-                ? 'Wipe incomplete: $brief (+${failedTables.length - 3} more)'
+                ? 'Wipe incomplete: $brief (+${failedOps.length - 3} more)'
                 : 'Wipe incomplete: $brief',
           );
         }

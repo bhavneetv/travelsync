@@ -69,6 +69,12 @@ class BackgroundLocationService {
   static Future<bool> start() async {
     final prefs = await SharedPreferences.getInstance();
 
+    final locationEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!locationEnabled) {
+      await prefs.setBool(_kAlwaysOn, false);
+      return false;
+    }
+
     if (io.Platform.isAndroid) {
       var status = await Permission.notification.status;
       if (!status.isGranted) {
@@ -78,6 +84,25 @@ class BackgroundLocationService {
         await prefs.setBool(_kAlwaysOn, false);
         return false;
       }
+    }
+
+    if (io.Platform.isIOS) {
+      // iOS needs Always permission for reliable background updates.
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.whileInUse) {
+        await Permission.locationAlways.request();
+        permission = await Geolocator.checkPermission();
+      }
+      if (permission != LocationPermission.always) {
+        await prefs.setBool(_kAlwaysOn, false);
+        return false;
+      }
+
+      // Request notifications as well (optional on iOS, but needed for alerts).
+      await Permission.notification.request();
     }
 
     await prefs.setBool(_kAlwaysOn, true);
@@ -133,9 +158,14 @@ void _backgroundMain(ServiceInstance service) async {
 
   final sb = Supabase.instance.client;
   final prefs = await SharedPreferences.getInstance();
-  int intervalSeconds = prefs.getInt(_kInterval) ?? 0;
+  int intervalSeconds = prefs.getInt(_kInterval) ?? 300;
+  if (intervalSeconds <= 0) {
+    intervalSeconds = 300;
+    await prefs.setInt(_kInterval, intervalSeconds);
+  }
 
-  await _restoreOpenRoute(sb, _state);
+  // Route continuity is validated on first position update before resuming,
+  // to avoid stale cross-device jumps.
 
   // Android foreground service notification
   if (service is AndroidServiceInstance) {
@@ -243,6 +273,16 @@ Future<void> _intervalLoop(
 ) async {
   while (true) {
     if (!(prefs.getBool(_kAlwaysOn) ?? false)) {
+      await _endRoute(sb, _state, isDestination: false);
+      service.stopSelf();
+      return;
+    }
+
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    final permission = await Geolocator.checkPermission();
+    if (!serviceEnabled ||
+        permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
       await _endRoute(sb, _state, isDestination: false);
       service.stopSelf();
       return;
@@ -398,20 +438,28 @@ Future<void> _startRoute(
         .maybeSingle();
 
     if (openRoute != null) {
-      state.activeRouteId = openRoute['id'] as int;
-      state.startCity = openRoute['start_city'] as String?;
+      final shouldClose = await _shouldCloseOpenRouteForNewPosition(
+        sb: sb,
+        userId: userId,
+        openRoute: openRoute,
+        currentPos: pos,
+      );
+      if (!shouldClose) {
+        state.activeRouteId = openRoute['id'] as int;
+        state.startCity = openRoute['start_city'] as String?;
 
-      final startedAtRaw = openRoute['started_at'] as String?;
-      if (startedAtRaw != null && startedAtRaw.isNotEmpty) {
-        state.routeStart = DateTime.tryParse(startedAtRaw) ?? state.routeStart;
-      }
+        final startedAtRaw = openRoute['started_at'] as String?;
+        if (startedAtRaw != null && startedAtRaw.isNotEmpty) {
+          state.routeStart = DateTime.tryParse(startedAtRaw) ?? state.routeStart;
+        }
 
-      final restoredDistance =
-          (openRoute['distance_km'] as num?)?.toDouble() ?? 0.0;
-      if (restoredDistance > state.totalDistKm) {
-        state.totalDistKm = restoredDistance;
+        final restoredDistance =
+            (openRoute['distance_km'] as num?)?.toDouble() ?? 0.0;
+        if (restoredDistance > state.totalDistKm) {
+          state.totalDistKm = restoredDistance;
+        }
+        return;
       }
-      return;
     }
 
     final geo = await _reverseGeocode(pos.latitude, pos.longitude);
@@ -428,6 +476,80 @@ Future<void> _startRoute(
   } catch (_) {
   } finally {
     state.creatingRoute = false;
+  }
+}
+
+Future<bool> _shouldCloseOpenRouteForNewPosition({
+  required SupabaseClient sb,
+  required String userId,
+  required Map<String, dynamic> openRoute,
+  required Position currentPos,
+}) async {
+  try {
+    final lastLog = await sb
+        .from('travel_logs')
+        .select('latitude, longitude, recorded_at, city')
+        .eq('user_id', userId)
+        .order('recorded_at', ascending: false)
+        .limit(1)
+        .maybeSingle();
+
+    if (lastLog == null) return false;
+
+    final lastLat = (lastLog['latitude'] as num?)?.toDouble();
+    final lastLng = (lastLog['longitude'] as num?)?.toDouble();
+    final recordedAtRaw = lastLog['recorded_at'] as String?;
+    final recordedAt =
+        recordedAtRaw != null ? DateTime.tryParse(recordedAtRaw) : null;
+    if (lastLat == null || lastLng == null || recordedAt == null) {
+      return false;
+    }
+
+    final distanceKm = Geolocator.distanceBetween(
+          lastLat,
+          lastLng,
+          currentPos.latitude,
+          currentPos.longitude,
+        ) /
+        1000;
+    final idle = DateTime.now().difference(recordedAt);
+    final movedFarAfterIdle = distanceKm >= 30 && idle >= const Duration(minutes: 30);
+    final settledLongNearSameArea =
+        distanceKm <= 5 && idle >= const Duration(hours: 3);
+
+    if (!movedFarAfterIdle && !settledLongNearSameArea) {
+      return false;
+    }
+
+    final routeId = openRoute['id'] as int;
+    final startedAtRaw = openRoute['started_at'] as String?;
+    final startedAt =
+        startedAtRaw != null ? DateTime.tryParse(startedAtRaw) : null;
+    final durationMin = startedAt != null
+        ? recordedAt.difference(startedAt).inMinutes.clamp(0, 1000000)
+        : null;
+    final endCity = lastLog['city'] as String?;
+    final startName = (openRoute['start_city'] as String?) ?? 'Unknown';
+    final endName = endCity ?? 'Unknown';
+    final distanceSaved = (openRoute['distance_km'] as num?)?.toDouble() ?? 0.0;
+
+    await sb
+        .from('routes')
+        .update({
+          'end_lat': lastLat,
+          'end_lng': lastLng,
+          'end_city': endCity,
+          'ended_at': recordedAt.toIso8601String(),
+          'distance_km': distanceSaved > 0 ? distanceSaved : null,
+          'duration_min': durationMin,
+          'name': '$startName -> $endName',
+          'is_destination': settledLongNearSameArea,
+        })
+        .eq('id', routeId);
+
+    return true;
+  } catch (_) {
+    return false;
   }
 }
 

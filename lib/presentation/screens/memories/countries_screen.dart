@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../core/constants.dart';
 import '../../../core/theme.dart';
 import '../../../services/memory_service.dart';
+import '../../../services/haptic_service.dart';
 
 /// Provider to fetch visited countries for the current user
 final visitedCountriesProvider =
@@ -92,7 +93,10 @@ class _CountriesScreenState extends ConsumerState<CountriesScreen> {
             leading: IconButton(
               icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
               color: AppColors.textSecondary,
-              onPressed: () => context.pop(),
+              onPressed: () async {
+                await HapticService.selection();
+                if (context.mounted) context.pop();
+              },
             ),
             bottom: PreferredSize(
               preferredSize: const Size.fromHeight(1),
@@ -204,6 +208,7 @@ class _CountriesScreenState extends ConsumerState<CountriesScreen> {
                               flag: _countryFlag(code),
                               visitCount: visitCount,
                               onTap: () {
+                                HapticService.selection();
                                 context.push(
                                   '/memories/states?country=$name&code=${code ?? ''}',
                                 );
@@ -252,6 +257,7 @@ class _CountriesScreenState extends ConsumerState<CountriesScreen> {
                               flag: _countryFlag(code),
                               visitCount: visitCount,
                               onTap: () {
+                                HapticService.selection();
                                 context.push(
                                   '/memories/states?country=$name&code=${code ?? ''}',
                                 );

@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 //  Keys
 // ─────────────────────────────────────────────
 const _kAlwaysOn = 'always_on_tracking';
-const _kInterval = 'tracking_interval_seconds'; // 0 = continuous
+const _kInterval = 'tracking_interval_seconds';
 const _kHapticsEnabled = 'haptics_enabled';
 
 // ─────────────────────────────────────────────
@@ -13,16 +13,15 @@ const _kHapticsEnabled = 'haptics_enabled';
 // ─────────────────────────────────────────────
 class TrackingInterval {
   final String label;
-  final int seconds; // 0 = continuous stream
+  final int seconds;
 
   const TrackingInterval({required this.label, required this.seconds});
 }
 
 const kTrackingIntervals = [
-  TrackingInterval(label: 'Continuous (best accuracy)', seconds: 0),
+  TrackingInterval(label: 'Every 1 minute', seconds: 60),
+  TrackingInterval(label: 'Every 3 minutes', seconds: 180),
   TrackingInterval(label: 'Every 5 minutes', seconds: 300),
-  TrackingInterval(label: 'Every 15 minutes', seconds: 900),
-  TrackingInterval(label: 'Every 30 minutes', seconds: 1800),
 ];
 
 // ─────────────────────────────────────────────
@@ -37,14 +36,14 @@ class AppSettingsService {
   Future<void> setAlwaysOnTracking(bool value) =>
       _prefs.setBool(_kAlwaysOn, value);
 
-  int get trackingIntervalSeconds => _prefs.getInt(_kInterval) ?? 0;
+  int get trackingIntervalSeconds => _prefs.getInt(_kInterval) ?? 300;
 
   Future<void> setTrackingIntervalSeconds(int seconds) =>
       _prefs.setInt(_kInterval, seconds);
 
-    bool get hapticsEnabled => _prefs.getBool(_kHapticsEnabled) ?? true;
+  bool get hapticsEnabled => _prefs.getBool(_kHapticsEnabled) ?? true;
 
-    Future<void> setHapticsEnabled(bool value) =>
+  Future<void> setHapticsEnabled(bool value) =>
       _prefs.setBool(_kHapticsEnabled, value);
 
   TrackingInterval get currentInterval => kTrackingIntervals.firstWhere(
@@ -95,10 +94,10 @@ final trackingIntervalProvider =
     StateNotifierProvider<_IntervalNotifier, int>((ref) => _IntervalNotifier(ref));
 
 class _IntervalNotifier extends StateNotifier<int> {
-  _IntervalNotifier(this._ref) : super(0) {
+  _IntervalNotifier(this._ref) : super(300) {
     _ref.listen<AsyncValue<SharedPreferences>>(_sharedPrefsProvider, (_, next) {
       next.whenData((prefs) {
-        state = prefs.getInt(_kInterval) ?? 0;
+        state = prefs.getInt(_kInterval) ?? 300;
       });
     });
   }

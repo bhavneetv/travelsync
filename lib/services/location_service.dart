@@ -48,6 +48,10 @@ class LocationService {
   bool _destinationDetected = false;
   static const double _destinationRadiusKm = 0.4; // 400m rest radius
   static const Duration _destinationDuration = Duration(hours: 4); // 4 hours
+  static const double _maxResumeDistanceKm = 30.0;
+  static const Duration _maxResumeIdle = Duration(minutes: 30);
+  static const Duration _autoDestinationIdle = Duration(hours: 3);
+  static const double _autoDestinationRadiusKm = 5.0;
 
   LocationService(this._ref);
 
@@ -127,7 +131,7 @@ class LocationService {
       _stationaryStartTime = DateTime.now();
 
       // Resume an open route if one exists, otherwise create a new route.
-      final resumedOpenRoute = await _restoreOpenRouteIfAny();
+      final resumedOpenRoute = await _restoreOpenRouteIfAny(startPos);
       if (!resumedOpenRoute) {
         await _startRoute(startPos);
       }
@@ -303,33 +307,8 @@ class LocationService {
     _startCityName ??= startCity;
 
     try {
-      final openRoute = await AppConstants.supabase
-          .from('routes')
-          .select('id, started_at, start_city, distance_km')
-          .eq('user_id', userId)
-          .isFilter('ended_at', null)
-          .order('started_at', ascending: false)
-          .limit(1)
-          .maybeSingle();
-
-      if (openRoute != null) {
-        _ref.read(activeRouteIdProvider.notifier).state = openRoute['id'] as int;
-        _startCityName = openRoute['start_city'] as String? ?? _startCityName;
-
-        final startedAtRaw = openRoute['started_at'] as String?;
-        if (startedAtRaw != null && startedAtRaw.isNotEmpty) {
-          _routeStartTime = DateTime.tryParse(startedAtRaw) ?? _routeStartTime;
-        }
-
-        final restoredDistance =
-            (openRoute['distance_km'] as num?)?.toDouble() ?? 0.0;
-        if (restoredDistance > _accumulatedDistanceKm) {
-          _accumulatedDistanceKm = restoredDistance;
-          _ref.read(accumulatedDistanceKmProvider.notifier).state =
-              _accumulatedDistanceKm;
-        }
-
-        _lastRouteCreateAttempt = DateTime.now();
+      final resumedOpenRoute = await _restoreOpenRouteIfAny(position);
+      if (resumedOpenRoute) {
         return;
       }
 
@@ -485,7 +464,7 @@ class LocationService {
     _resetTrackingState();
   }
 
-  Future<bool> _restoreOpenRouteIfAny() async {
+  Future<bool> _restoreOpenRouteIfAny(Position currentPos) async {
     final userId = AppConstants.supabase.auth.currentUser?.id;
     if (userId == null) return false;
 
@@ -501,6 +480,15 @@ class LocationService {
 
       if (openRoute == null) return false;
 
+      final shouldClose = await _shouldCloseOpenRouteForNewPosition(
+        openRoute: openRoute,
+        userId: userId,
+        currentPos: currentPos,
+      );
+      if (shouldClose) {
+        return false;
+      }
+
       _ref.read(activeRouteIdProvider.notifier).state = openRoute['id'] as int;
       _startCityName = openRoute['start_city'] as String?;
 
@@ -513,6 +501,84 @@ class LocationService {
           (openRoute['distance_km'] as num?)?.toDouble() ?? 0.0;
       _ref.read(accumulatedDistanceKmProvider.notifier).state =
           _accumulatedDistanceKm;
+
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> _shouldCloseOpenRouteForNewPosition({
+    required Map<String, dynamic> openRoute,
+    required String userId,
+    required Position currentPos,
+  }) async {
+    try {
+      final lastLog = await AppConstants.supabase
+          .from('travel_logs')
+          .select('latitude, longitude, recorded_at, city')
+          .eq('user_id', userId)
+          .order('recorded_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+
+      if (lastLog == null) return false;
+
+      final lastLat = (lastLog['latitude'] as num?)?.toDouble();
+      final lastLng = (lastLog['longitude'] as num?)?.toDouble();
+      final recordedAtRaw = lastLog['recorded_at'] as String?;
+      final recordedAt = recordedAtRaw != null
+          ? DateTime.tryParse(recordedAtRaw)
+          : null;
+      if (lastLat == null || lastLng == null || recordedAt == null) {
+        return false;
+      }
+
+      final distanceKm = Geolocator.distanceBetween(
+            lastLat,
+            lastLng,
+            currentPos.latitude,
+            currentPos.longitude,
+          ) /
+          1000;
+      final idleDuration = DateTime.now().difference(recordedAt);
+
+      final movedFarAfterIdle =
+          distanceKm >= _maxResumeDistanceKm && idleDuration >= _maxResumeIdle;
+      final settledLongNearSameArea =
+          distanceKm <= _autoDestinationRadiusKm &&
+          idleDuration >= _autoDestinationIdle;
+
+      if (!movedFarAfterIdle && !settledLongNearSameArea) {
+        return false;
+      }
+
+      final routeId = openRoute['id'] as int;
+      final startedAtRaw = openRoute['started_at'] as String?;
+      final startedAt =
+          startedAtRaw != null ? DateTime.tryParse(startedAtRaw) : null;
+      final durationMin = startedAt != null
+          ? recordedAt.difference(startedAt).inMinutes.clamp(0, 1000000)
+          : null;
+      final distanceKmSaved =
+          (openRoute['distance_km'] as num?)?.toDouble() ?? 0.0;
+      final endCity = lastLog['city'] as String?;
+      final startName = (openRoute['start_city'] as String?) ?? 'Unknown';
+      final endName = endCity ?? 'Unknown';
+
+      await AppConstants.supabase
+          .from('routes')
+          .update({
+            'end_lat': lastLat,
+            'end_lng': lastLng,
+            'end_city': endCity,
+            'ended_at': recordedAt.toIso8601String(),
+            'distance_km': distanceKmSaved > 0 ? distanceKmSaved : null,
+            'duration_min': durationMin,
+            'name': '$startName -> $endName',
+            'is_destination': settledLongNearSameArea,
+          })
+          .eq('id', routeId);
 
       return true;
     } catch (_) {

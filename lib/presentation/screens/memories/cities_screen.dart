@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../core/constants.dart';
 import '../../../core/theme.dart';
 import '../../../services/memory_service.dart';
+import '../../../services/haptic_service.dart';
 
 /// Provider to fetch visited cities filtered by state
 final visitedCitiesForStateProvider = FutureProvider.autoDispose
@@ -221,7 +222,10 @@ class _CitiesScreenState extends ConsumerState<CitiesScreen> {
             leading: IconButton(
               icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
               color: AppColors.textSecondary,
-              onPressed: () => context.pop(),
+              onPressed: () async {
+                await HapticService.selection();
+                if (context.mounted) context.pop();
+              },
             ),
             title: Text(
               widget.stateName,
@@ -244,7 +248,10 @@ class _CitiesScreenState extends ConsumerState<CitiesScreen> {
               child: Row(
                 children: [
                   GestureDetector(
-                    onTap: () => context.go('/memories'),
+                    onTap: () async {
+                      await HapticService.selection();
+                      if (context.mounted) context.go('/memories');
+                    },
                     child: Text(
                       widget.countryName,
                       style: GoogleFonts.inter(
@@ -369,6 +376,7 @@ class _CitiesScreenState extends ConsumerState<CitiesScreen> {
                             : AppColors.primary,
                         placeType: isVillage ? 'village' : 'city',
                         onTap: () {
+                          HapticService.selection();
                           context.push(
                             '/memories/place?city=$name&type=${isVillage ? 'village' : 'city'}&state=${widget.stateName}&country=${widget.countryName}&code=${widget.countryCode}&lat=${lat ?? ''}&lng=${lng ?? ''}',
                           );
@@ -423,6 +431,7 @@ class _CitiesScreenState extends ConsumerState<CitiesScreen> {
                         iconColor: AppColors.primary,
                         placeType: 'city',
                         onTap: () {
+                          HapticService.selection();
                           context.push(
                             '/memories/place?city=$name&type=city&state=${widget.stateName}&country=${widget.countryName}&code=${widget.countryCode}&lat=${lat ?? ''}&lng=${lng ?? ''}',
                           );
@@ -477,6 +486,7 @@ class _CitiesScreenState extends ConsumerState<CitiesScreen> {
                         iconColor: const Color(0xFF059669),
                         placeType: 'village',
                         onTap: () {
+                          HapticService.selection();
                           context.push(
                             '/memories/place?city=$name&type=village&state=${widget.stateName}&country=${widget.countryName}&code=${widget.countryCode}&lat=${lat ?? ''}&lng=${lng ?? ''}',
                           );
