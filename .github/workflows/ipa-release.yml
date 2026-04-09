@@ -56,9 +56,34 @@ jobs:
         id: ipa
         shell: bash
         run: |
-          ipa_path=$(find build/ios/ipa -maxdepth 1 -name "*.ipa" | head -n 1)
+          # Flutter output varies by version/config. Try standard path first,
+          # then broad search, then package from xcarchive as fallback.
+          ipa_path=""
+
+          if [ -d "build/ios/ipa" ]; then
+            ipa_path=$(find build/ios/ipa -maxdepth 1 -name "*.ipa" | head -n 1)
+          fi
+
           if [ -z "$ipa_path" ]; then
-            echo "No IPA produced in build/ios/ipa"
+            ipa_path=$(find build/ios -type f -name "*.ipa" | head -n 1)
+          fi
+
+          if [ -z "$ipa_path" ]; then
+            app_path=$(find build/ios/archive -type d -path "*/Products/Applications/*.app" | head -n 1)
+            if [ -n "$app_path" ]; then
+              mkdir -p build/ios/ipa/Payload
+              cp -R "$app_path" build/ios/ipa/Payload/
+              (
+                cd build/ios/ipa
+                zip -qry Runner.ipa Payload
+              )
+              ipa_path="build/ios/ipa/Runner.ipa"
+            fi
+          fi
+
+          if [ -z "$ipa_path" ]; then
+            echo "No IPA produced by build. Dumping build/ios tree for diagnostics:"
+            find build/ios -maxdepth 4 -print || true
             exit 1
           fi
           echo "path=$ipa_path" >> "$GITHUB_OUTPUT"
