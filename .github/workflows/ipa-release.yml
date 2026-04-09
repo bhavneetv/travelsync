@@ -1,0 +1,76 @@
+name: Build iOS IPA Release
+
+on:
+  push:
+    tags:
+      - 'ipa-v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag (optional). Example: ipa-v1.0.0
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-ipa:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build iOS IPA (no codesign)
+        run: |
+          flutter build ipa \
+            --release \
+            --no-codesign \
+            --dart-define=SUPABASE_URL="${{ secrets.SUPABASE_URL }}" \
+            --dart-define=SUPABASE_ANON_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.release_tag }}" ]; then
+            tag="${{ github.event.inputs.release_tag }}"
+          elif [ "${{ github.ref_type }}" = "tag" ] && [ -n "${{ github.ref_name }}" ]; then
+            tag="${{ github.ref_name }}"
+          else
+            tag="ipa-${{ github.run_number }}"
+          fi
+          echo "value=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Locate IPA
+        id: ipa
+        shell: bash
+        run: |
+          ipa_path=$(find build/ios/ipa -maxdepth 1 -name "*.ipa" | head -n 1)
+          if [ -z "$ipa_path" ]; then
+            echo "No IPA produced in build/ios/ipa"
+            exit 1
+          fi
+          echo "path=$ipa_path" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release with IPA only
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.value }}
+          name: ${{ steps.tag.outputs.value }}
+          files: ${{ steps.ipa.outputs.path }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

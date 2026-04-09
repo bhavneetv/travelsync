@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../../core/constants.dart';
 import '../../../core/theme.dart';
 import '../../../services/location_service.dart';
@@ -17,7 +18,7 @@ final travelStatsProvider =
   final results = await Future.wait([
     AppConstants.supabase
         .from('users')
-        .select('total_distance_km, total_xp, travel_level')
+        .select('total_xp, travel_level')
         .eq('id', userId)
         .single(),
     AppConstants.supabase
@@ -28,24 +29,20 @@ final travelStatsProvider =
         .limit(365),
     AppConstants.supabase
         .from('routes')
-        .select('id')
-        .eq('user_id', userId)
-        .limit(1000),
+      .select('id, distance_km, is_destination, ended_at')
+      .eq('user_id', userId),
     AppConstants.supabase
         .from('visited_cities')
         .select('id')
-        .eq('user_id', userId)
-        .limit(2000),
+      .eq('user_id', userId),
     AppConstants.supabase
         .from('visited_countries')
         .select('name, country_code, visit_count')
-        .eq('user_id', userId)
-        .limit(100),
+      .eq('user_id', userId),
     AppConstants.supabase
         .from('visited_villages')
         .select('id')
-        .eq('user_id', userId)
-        .limit(3000),
+      .eq('user_id', userId),
   ]);
 
   final user = results[0] as Map<String, dynamic>;
@@ -74,8 +71,20 @@ final travelStatsProvider =
     }
   }
 
-  final totalDistance =
-      (user['total_distance_km'] as num?)?.toDouble() ?? 0;
+  var totalDistance = 0.0;
+  var destinationRoutes = 0;
+  var passThroughRoutes = 0;
+  for (final route in routes) {
+    totalDistance += (route['distance_km'] as num?)?.toDouble() ?? 0.0;
+    if (route['ended_at'] != null) {
+      final isDestination = route['is_destination'] as bool? ?? false;
+      if (isDestination) {
+        destinationRoutes++;
+      } else {
+        passThroughRoutes++;
+      }
+    }
+  }
 
   return {
     'user': user,
@@ -86,7 +95,8 @@ final travelStatsProvider =
     'villagesVisited': villages.length,
     'countriesVisited': countries.length,
     'totalLogs': logs.length,
-    'totalRoutes': routes.length,
+    'totalRoutes': destinationRoutes,
+    'passThroughRoutes': passThroughRoutes,
     'monthlyData': monthlyData,
     'dailyData': dailyData,
     'countries': countries,
@@ -125,9 +135,9 @@ class _StatsScreenState extends ConsumerState<StatsScreen>
     final liveRouteKm = ref.watch(accumulatedDistanceKmProvider);
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.light,
+      value: SystemUiOverlayStyle.dark,
       child: Scaffold(
-        backgroundColor: const Color(0xFF0A0A0F),
+        backgroundColor: AppColors.lightBg,
         body: statsAsync.when(
           data: (stats) {
             final adjustedStats = Map<String, dynamic>.from(stats);
@@ -159,20 +169,25 @@ class _StatsScreenState extends ConsumerState<StatsScreen>
         SliverAppBar(
           expandedHeight: 0,
           floating: true,
-          backgroundColor: const Color(0xFF0A0A0F),
+          backgroundColor: AppColors.lightSurface,
+          surfaceTintColor: Colors.transparent,
           elevation: 0,
-          title: const Text(
+          scrolledUnderElevation: 0,
+          title: Text(
             'Your Journey',
-            style: TextStyle(
-              color: Colors.white,
+            style: GoogleFonts.manrope(
+              color: AppColors.textPrimary,
               fontSize: 20,
               fontWeight: FontWeight.w700,
-              letterSpacing: -0.5,
             ),
+          ),
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(1),
+            child: Container(color: AppColors.border, height: 1),
           ),
           actions: [
             IconButton(
-              icon: const Icon(Icons.refresh_rounded, color: Colors.white70),
+              icon: Icon(Icons.refresh_rounded, color: AppColors.textSecondary),
               onPressed: () => ref.invalidate(travelStatsProvider),
             ),
           ],
@@ -237,25 +252,11 @@ class _XpHeroCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(28),
-        gradient: const LinearGradient(
-          colors: [Color(0xFF1A1040), Color(0xFF0D2060)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        border: Border.all(
-          color: Colors.white.withOpacity(0.08),
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF6C3EF4).withOpacity(0.25),
-            blurRadius: 40,
-            offset: const Offset(0, 16),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(14),
+        color: AppColors.lightSurface,
+        boxShadow: AppColors.cardShadow,
       ),
       child: Column(
         children: [
@@ -263,53 +264,48 @@ class _XpHeroCard extends StatelessWidget {
             children: [
               // Level badge
               Container(
-                width: 72,
-                height: 72,
+                width: 64,
+                height: 64,
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF6C3EF4), Color(0xFF3E8EF4)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(22),
+                  color: AppColors.primaryLight,
+                  borderRadius: BorderRadius.circular(16),
                 ),
                 child: Center(
                   child: Text(
                     _getLevelEmoji(level),
-                    style: const TextStyle(fontSize: 34),
+                    style: const TextStyle(fontSize: 30),
                   ),
                 ),
               ),
-              const SizedBox(width: 18),
+              const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
+                          horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.12),
+                        color: AppColors.primaryLight,
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
                         'LEVEL $level',
-                        style: const TextStyle(
-                          color: Colors.white70,
+                        style: GoogleFonts.inter(
+                          color: AppColors.primaryDark,
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
-                          letterSpacing: 1.5,
+                          letterSpacing: 1.2,
                         ),
                       ),
                     ),
                     const SizedBox(height: 6),
                     Text(
                       XPService.getLevelName(level),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.5,
+                      style: GoogleFonts.manrope(
+                        color: AppColors.textPrimary,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
                         height: 1.1,
                       ),
                     ),
@@ -321,17 +317,17 @@ class _XpHeroCard extends StatelessWidget {
                 children: [
                   Text(
                     '$totalXp',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 26,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -1,
+                    style: GoogleFonts.manrope(
+                      color: AppColors.textPrimary,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.5,
                     ),
                   ),
-                  const Text(
+                  Text(
                     'total XP',
-                    style: TextStyle(
-                      color: Colors.white54,
+                    style: GoogleFonts.inter(
+                      color: AppColors.textSecondary,
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
                     ),
@@ -340,18 +336,18 @@ class _XpHeroCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 18),
           // Progress bar
           ClipRRect(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(8),
             child: LinearProgressIndicator(
               value: progress,
-              minHeight: 8,
-              backgroundColor: Colors.white.withOpacity(0.1),
-              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFFD166)),
+              minHeight: 6,
+              backgroundColor: AppColors.surfaceContainer,
+              valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -366,8 +362,8 @@ class _XpHeroCard extends StatelessWidget {
 
   Widget _xpChip(String text) => Text(
         text,
-        style: const TextStyle(
-          color: Colors.white54,
+        style: GoogleFonts.inter(
+          color: AppColors.textSecondary,
           fontSize: 12,
           fontWeight: FontWeight.w500,
         ),
@@ -441,9 +437,9 @@ class _StatCell extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
       decoration: BoxDecoration(
-        color: const Color(0xFF131318),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.06), width: 1),
+        color: AppColors.lightSurface,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: AppColors.cardShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -453,21 +449,20 @@ class _StatCell extends StatelessWidget {
             width: 36,
             height: 36,
             decoration: BoxDecoration(
-              color: item.color.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(12),
+              color: AppColors.primaryLight,
+              borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(item.icon, color: item.color, size: 18),
+            child: Icon(item.icon, color: AppColors.primary, size: 18),
           ),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 item.value,
-                style: const TextStyle(
-                  color: Colors.white,
+                style: GoogleFonts.manrope(
+                  color: AppColors.textPrimary,
                   fontSize: 20,
                   fontWeight: FontWeight.w800,
-                  letterSpacing: -0.5,
                   height: 1,
                 ),
                 maxLines: 1,
@@ -476,8 +471,8 @@ class _StatCell extends StatelessWidget {
               const SizedBox(height: 3),
               Text(
                 item.label,
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.45),
+                style: GoogleFonts.inter(
+                  color: AppColors.textSecondary,
                   fontSize: 11,
                   fontWeight: FontWeight.w500,
                 ),
@@ -500,11 +495,10 @@ class _SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       title,
-      style: const TextStyle(
-        color: Colors.white,
-        fontSize: 20,
-        fontWeight: FontWeight.w800,
-        letterSpacing: -0.4,
+      style: GoogleFonts.manrope(
+        color: AppColors.textPrimary,
+        fontSize: 18,
+        fontWeight: FontWeight.w700,
       ),
     );
   }
@@ -532,9 +526,9 @@ class _ActivityCardState extends State<_ActivityCard> {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF131318),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withOpacity(0.06), width: 1),
+        color: AppColors.lightSurface,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: AppColors.cardShadow,
       ),
       child: Column(
         children: [
@@ -544,20 +538,20 @@ class _ActivityCardState extends State<_ActivityCard> {
             child: Container(
               height: 38,
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.06),
-                borderRadius: BorderRadius.circular(12),
+                color: AppColors.surfaceContainer,
+                borderRadius: BorderRadius.circular(10),
               ),
               child: TabBar(
                 controller: widget.tabController,
                 indicator: BoxDecoration(
-                  color: const Color(0xFF6C3EF4),
-                  borderRadius: BorderRadius.circular(10),
+                  color: AppColors.primary,
+                  borderRadius: BorderRadius.circular(8),
                 ),
                 indicatorSize: TabBarIndicatorSize.tab,
                 dividerColor: Colors.transparent,
                 labelColor: Colors.white,
-                unselectedLabelColor: Colors.white54,
-                labelStyle: const TextStyle(
+                unselectedLabelColor: AppColors.textSecondary,
+                labelStyle: GoogleFonts.inter(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                 ),
@@ -635,8 +629,8 @@ class _MonthlyBarChart extends StatelessWidget {
                   padding: const EdgeInsets.only(top: 6),
                   child: Text(
                     i >= 0 && i < 12 ? months[i] : '',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.4),
+                    style: const TextStyle(
+                      color: AppColors.textMuted,
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
                     ),
@@ -654,7 +648,7 @@ class _MonthlyBarChart extends StatelessWidget {
           drawVerticalLine: false,
           horizontalInterval: maxY > 0 ? (maxY / 3).ceilToDouble() : 3,
           getDrawingHorizontalLine: (_) => FlLine(
-            color: Colors.white.withOpacity(0.05),
+            color: AppColors.border,
             strokeWidth: 1,
           ),
         ),
@@ -670,14 +664,14 @@ class _MonthlyBarChart extends StatelessWidget {
                 gradient: isEmpty
                     ? LinearGradient(
                         colors: [
-                          Colors.white.withOpacity(0.06),
-                          Colors.white.withOpacity(0.04),
+                          AppColors.border,
+                          AppColors.surfaceContainer,
                         ],
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                       )
-                    : const LinearGradient(
-                        colors: [Color(0xFF6C3EF4), Color(0xFF3E8EF4)],
+                    : LinearGradient(
+                        colors: [AppColors.primary, AppColors.primary.withValues(alpha: 0.6)],
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                       ),
@@ -720,7 +714,7 @@ class _DailyLineChart extends StatelessWidget {
         maxY: maxY > 0 ? maxY + 1 : 5,
         lineTouchData: LineTouchData(
           touchTooltipData: LineTouchTooltipData(
-            getTooltipColor: (_) => const Color(0xFF1E1E2E),
+            getTooltipColor: (_) => AppColors.textPrimary,
             getTooltipItems: (spots) => spots
                 .map((s) => LineTooltipItem(
                       '${s.y.toInt()} logs',
@@ -745,8 +739,8 @@ class _DailyLineChart extends StatelessWidget {
                   padding: const EdgeInsets.only(top: 6),
                   child: Text(
                     '${date.day}/${date.month}',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.4),
+                    style: const TextStyle(
+                      color: AppColors.textMuted,
                       fontSize: 9,
                       fontWeight: FontWeight.w600,
                     ),
@@ -763,7 +757,7 @@ class _DailyLineChart extends StatelessWidget {
           show: true,
           drawVerticalLine: false,
           getDrawingHorizontalLine: (_) => FlLine(
-            color: Colors.white.withOpacity(0.05),
+            color: AppColors.border,
             strokeWidth: 1,
           ),
         ),
@@ -773,7 +767,7 @@ class _DailyLineChart extends StatelessWidget {
             spots: spots,
             isCurved: true,
             curveSmoothness: 0.35,
-            color: const Color(0xFF6C3EF4),
+            color: AppColors.primary,
             barWidth: 2.5,
             isStrokeCapRound: true,
             dotData: FlDotData(
@@ -781,17 +775,17 @@ class _DailyLineChart extends StatelessWidget {
               checkToShowDot: (spot, _) => spot.y > 0,
               getDotPainter: (spot, _, __, ___) => FlDotCirclePainter(
                 radius: 3.5,
-                color: const Color(0xFF6C3EF4),
+                color: AppColors.primary,
                 strokeWidth: 2,
-                strokeColor: const Color(0xFF0A0A0F),
+                strokeColor: AppColors.lightSurface,
               ),
             ),
             belowBarData: BarAreaData(
               show: true,
               gradient: LinearGradient(
                 colors: [
-                  const Color(0xFF6C3EF4).withOpacity(0.25),
-                  const Color(0xFF6C3EF4).withOpacity(0.0),
+                  AppColors.primary.withValues(alpha: 0.15),
+                  AppColors.primary.withValues(alpha: 0.0),
                 ],
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,

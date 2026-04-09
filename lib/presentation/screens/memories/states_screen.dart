@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../../core/constants.dart';
 import '../../../core/theme.dart';
 import '../../../services/memory_service.dart';
@@ -74,68 +75,47 @@ class _StatesScreenState extends ConsumerState<StatesScreen> {
     final statesAsync = ref.watch(visitedStatesProvider(widget.countryCode));
 
     return Scaffold(
+      backgroundColor: AppColors.lightBg,
       body: CustomScrollView(
         slivers: [
+          // ── App Bar ────────────────────────────────────────────────────
           SliverAppBar(
-            expandedHeight: 120,
-            pinned: true,
-            backgroundColor: AppColors.darkBg,
+            floating: true,
+            backgroundColor: AppColors.lightSurface,
+            surfaceTintColor: Colors.transparent,
+            elevation: 0,
+            scrolledUnderElevation: 0,
             leading: IconButton(
+              icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+              color: AppColors.textSecondary,
               onPressed: () => context.pop(),
-              icon: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: AppColors.darkBg.withValues(alpha: 0.6),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(Icons.arrow_back_ios_rounded,
-                    color: Colors.white, size: 18),
+            ),
+            title: Text(
+              widget.countryName,
+              style: GoogleFonts.manrope(
+                color: AppColors.textPrimary,
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
               ),
             ),
-            flexibleSpace: FlexibleSpaceBar(
-              title: Text(
-                widget.countryName,
-                style: const TextStyle(
-                    fontWeight: FontWeight.w800, fontSize: 18),
-              ),
-              background: Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Color(0xFF1F72E6), Color(0xFF0E458F)],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                  ),
-                ),
-                child: Stack(
-                  children: [
-                    Positioned(
-                      right: -10,
-                      bottom: -8,
-                      child: Icon(
-                        Icons.map_rounded,
-                        size: 120,
-                        color: Colors.white.withValues(alpha: 0.07),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+            bottom: PreferredSize(
+              preferredSize: const Size.fromHeight(1),
+              child: Container(color: AppColors.border, height: 1),
             ),
           ),
 
+          // ── Search bar ──────────────────────────────────────────────────
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
               child: TextField(
                 controller: _searchController,
                 onChanged: (value) => setState(() => _searchQuery = value),
-                style: const TextStyle(color: Colors.white),
+                style: GoogleFonts.inter(color: AppColors.textPrimary),
                 decoration: InputDecoration(
-                  hintText: 'Search state or region',
-                  hintStyle:
-                      TextStyle(color: AppColors.textSecondary.withValues(alpha: 0.8)),
-                  prefixIcon: const Icon(Icons.search_rounded,
-                      color: AppColors.textSecondary),
+                  hintText: 'Search state or region...',
+                  prefixIcon:
+                      const Icon(Icons.search_rounded, size: 20),
                   suffixIcon: _searchQuery.isEmpty
                       ? null
                       : IconButton(
@@ -143,15 +123,9 @@ class _StatesScreenState extends ConsumerState<StatesScreen> {
                             _searchController.clear();
                             setState(() => _searchQuery = '');
                           },
-                          icon: const Icon(Icons.close_rounded,
-                              color: AppColors.textSecondary),
+                          icon:
+                              const Icon(Icons.close_rounded, size: 18),
                         ),
-                  filled: true,
-                  fillColor: AppColors.darkCard,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide.none,
-                  ),
                 ),
               ),
             ),
@@ -166,45 +140,27 @@ class _StatesScreenState extends ConsumerState<StatesScreen> {
                 return name.contains(query);
               }).toList();
 
-              final recent = filtered.where((state) => _isRecent(state)).toList();
+              final recent =
+                  filtered.where((s) => _isRecent(s)).toList();
               final all = List<Map<String, dynamic>>.from(filtered);
 
               if (states.isEmpty) {
                 return SliverFillRemaining(
-                  child: Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.map_outlined,
-                            size: 72,
-                            color:
-                                AppColors.textSecondary.withValues(alpha: 0.4)),
-                        const SizedBox(height: 16),
-                        Text(
-                          'No states visited in ${widget.countryName}',
-                          style: TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
+                  child: _EmptyState(
+                    icon: Icons.map_outlined,
+                    title: 'No states visited',
+                    subtitle:
+                        'No states recorded in ${widget.countryName} yet',
                   ),
                 );
               }
 
               if (filtered.isEmpty) {
                 return SliverFillRemaining(
-                  child: Center(
-                    child: Text(
-                      'No states match your search',
-                      style: TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                  child: _EmptyState(
+                    icon: Icons.search_off_rounded,
+                    title: 'No results',
+                    subtitle: 'No states match your search',
                   ),
                 );
               }
@@ -222,11 +178,13 @@ class _StatesScreenState extends ConsumerState<StatesScreen> {
                   ),
                   if (recent.isEmpty)
                     const SliverToBoxAdapter(
-                      child: _EmptySection(text: 'No recent states in last 24h'),
+                      child: _EmptySection(
+                          text: 'No recent states in last 24h'),
                     )
                   else
                     SliverPadding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 16),
                       sliver: SliverGrid(
                         gridDelegate:
                             const SliverGridDelegateWithFixedCrossAxisCount(
@@ -238,8 +196,10 @@ class _StatesScreenState extends ConsumerState<StatesScreen> {
                         delegate: SliverChildBuilderDelegate(
                           (context, index) {
                             final state = recent[index];
-                            final name = state['name'] as String? ?? 'Unknown';
-                            final visitCount = state['visit_count'] as int? ?? 1;
+                            final name =
+                                state['name'] as String? ?? 'Unknown';
+                            final visitCount =
+                                state['visit_count'] as int? ?? 1;
                             return _StateCard(
                               name: name,
                               countryCode: widget.countryCode,
@@ -259,7 +219,8 @@ class _StatesScreenState extends ConsumerState<StatesScreen> {
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
-                      child: _SectionTitle(title: 'All States', count: all.length),
+                      child: _SectionTitle(
+                          title: 'All States', count: all.length),
                     ),
                   ),
                   if (all.isEmpty)
@@ -268,7 +229,8 @@ class _StatesScreenState extends ConsumerState<StatesScreen> {
                     )
                   else
                     SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                      padding:
+                          const EdgeInsets.fromLTRB(16, 0, 16, 32),
                       sliver: SliverGrid(
                         gridDelegate:
                             const SliverGridDelegateWithFixedCrossAxisCount(
@@ -280,8 +242,10 @@ class _StatesScreenState extends ConsumerState<StatesScreen> {
                         delegate: SliverChildBuilderDelegate(
                           (context, index) {
                             final state = all[index];
-                            final name = state['name'] as String? ?? 'Unknown';
-                            final visitCount = state['visit_count'] as int? ?? 1;
+                            final name =
+                                state['name'] as String? ?? 'Unknown';
+                            final visitCount =
+                                state['visit_count'] as int? ?? 1;
                             return _StateCard(
                               name: name,
                               countryCode: widget.countryCode,
@@ -302,10 +266,21 @@ class _StatesScreenState extends ConsumerState<StatesScreen> {
               );
             },
             loading: () => const SliverFillRemaining(
-              child: Center(child: CircularProgressIndicator()),
+              child: Center(
+                child: CircularProgressIndicator(
+                  valueColor:
+                      AlwaysStoppedAnimation<Color>(AppColors.primary),
+                  strokeWidth: 2.5,
+                ),
+              ),
             ),
             error: (e, _) => SliverFillRemaining(
-              child: Center(child: Text('Error: $e')),
+              child: Center(
+                child: Text(
+                  'Error: $e',
+                  style: GoogleFonts.inter(color: AppColors.textSecondary),
+                ),
+              ),
             ),
           ),
         ],
@@ -313,6 +288,8 @@ class _StatesScreenState extends ConsumerState<StatesScreen> {
     );
   }
 }
+
+// ─── State Card ───────────────────────────────────────────────────────────────
 
 class _StateCard extends ConsumerWidget {
   final String name;
@@ -334,19 +311,15 @@ class _StateCard extends ConsumerWidget {
     final memoryAsync = ref.watch(latestMemoryProvider(
       MemoryQuery(placeType: 'state', placeName: name),
     ));
-    final hasMemoryImage = memoryAsync.asData?.value != null;
-    final titleColor = hasMemoryImage ? Colors.white : AppColors.textDark;
-    final subtitleColor =
-        hasMemoryImage ? AppColors.textSecondary : AppColors.textDarkSecondary;
-    final chevronColor =
-        hasMemoryImage ? AppColors.textSecondary : AppColors.textDarkSecondary;
+    final hasImage = memoryAsync.asData?.value != null;
 
     return GestureDetector(
       onTap: onTap,
       child: Container(
         decoration: BoxDecoration(
-          gradient: AppColors.cardGradient,
+          color: AppColors.lightSurface,
           borderRadius: BorderRadius.circular(14),
+          boxShadow: AppColors.cardShadow,
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(14),
@@ -359,7 +332,7 @@ class _StateCard extends ConsumerWidget {
                     child: CachedNetworkImage(
                       imageUrl: memory.imageUrl,
                       fit: BoxFit.cover,
-                      color: Colors.black.withValues(alpha: 0.6),
+                      color: Colors.black.withValues(alpha: 0.55),
                       colorBlendMode: BlendMode.darken,
                     ),
                   );
@@ -368,19 +341,24 @@ class _StateCard extends ConsumerWidget {
                 error: (_, __) => const SizedBox.shrink(),
               ),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 10, vertical: 8),
                 child: Row(
                   children: [
                     Container(
                       width: 34,
                       height: 34,
                       decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.2),
+                        color: hasImage
+                            ? Colors.black.withValues(alpha: 0.3)
+                            : AppColors.primaryLight,
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.location_on_rounded,
-                        color: AppColors.primaryLight,
+                        color: hasImage
+                            ? Colors.white70
+                            : AppColors.primary,
                         size: 18,
                       ),
                     ),
@@ -392,8 +370,10 @@ class _StateCard extends ConsumerWidget {
                         children: [
                           Text(
                             name,
-                            style: TextStyle(
-                              color: titleColor,
+                            style: GoogleFonts.manrope(
+                              color: hasImage
+                                  ? Colors.white
+                                  : AppColors.textPrimary,
                               fontSize: 13,
                               fontWeight: FontWeight.w700,
                             ),
@@ -402,8 +382,10 @@ class _StateCard extends ConsumerWidget {
                           ),
                           Text(
                             '$visitCount visit${visitCount == 1 ? '' : 's'}',
-                            style: TextStyle(
-                              color: subtitleColor,
+                            style: GoogleFonts.inter(
+                              color: hasImage
+                                  ? Colors.white70
+                                  : AppColors.textSecondary,
                               fontSize: 11,
                             ),
                           ),
@@ -412,7 +394,9 @@ class _StateCard extends ConsumerWidget {
                     ),
                     Icon(
                       Icons.chevron_right_rounded,
-                      color: chevronColor,
+                      color: hasImage
+                          ? Colors.white54
+                          : AppColors.textMuted,
                       size: 18,
                     ),
                   ],
@@ -426,6 +410,8 @@ class _StateCard extends ConsumerWidget {
   }
 }
 
+// ─── Shared helpers ───────────────────────────────────────────────────────────
+
 class _SectionTitle extends StatelessWidget {
   final String title;
   final int count;
@@ -438,23 +424,24 @@ class _SectionTitle extends StatelessWidget {
       children: [
         Text(
           title,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 14,
+          style: GoogleFonts.manrope(
+            color: AppColors.textPrimary,
+            fontSize: 15,
             fontWeight: FontWeight.w700,
           ),
         ),
         const SizedBox(width: 8),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          padding:
+              const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           decoration: BoxDecoration(
-            color: AppColors.darkCard,
+            color: AppColors.primaryLight,
             borderRadius: BorderRadius.circular(10),
           ),
           child: Text(
             '$count',
-            style: TextStyle(
-              color: AppColors.textSecondary,
+            style: GoogleFonts.inter(
+              color: AppColors.primaryDark,
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
@@ -473,19 +460,75 @@ class _EmptySection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: Container(
-        padding: const EdgeInsets.all(12),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: AppColors.darkCard,
-          borderRadius: BorderRadius.circular(12),
+          color: AppColors.surfaceContainer,
+          borderRadius: BorderRadius.circular(10),
         ),
         child: Text(
           text,
-          style: TextStyle(
-            color: AppColors.textSecondary,
+          style: GoogleFonts.inter(
+            color: AppColors.textMuted,
             fontSize: 12,
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  const _EmptyState({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                color: AppColors.primaryLight,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Icon(icon, size: 36, color: AppColors.primary),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              title,
+              style: GoogleFonts.manrope(
+                color: AppColors.textPrimary,
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              subtitle,
+              style: GoogleFonts.inter(
+                color: AppColors.textSecondary,
+                fontSize: 13,
+                height: 1.4,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
         ),
       ),
     );

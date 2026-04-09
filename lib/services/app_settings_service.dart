@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 // ─────────────────────────────────────────────
 const _kAlwaysOn = 'always_on_tracking';
 const _kInterval = 'tracking_interval_seconds'; // 0 = continuous
+const _kHapticsEnabled = 'haptics_enabled';
 
 // ─────────────────────────────────────────────
 //  Interval presets
@@ -40,6 +41,11 @@ class AppSettingsService {
 
   Future<void> setTrackingIntervalSeconds(int seconds) =>
       _prefs.setInt(_kInterval, seconds);
+
+    bool get hapticsEnabled => _prefs.getBool(_kHapticsEnabled) ?? true;
+
+    Future<void> setHapticsEnabled(bool value) =>
+      _prefs.setBool(_kHapticsEnabled, value);
 
   TrackingInterval get currentInterval => kTrackingIntervals.firstWhere(
     (i) => i.seconds == trackingIntervalSeconds,
@@ -102,5 +108,27 @@ class _IntervalNotifier extends StateNotifier<int> {
     final prefs = await _ref.read(_sharedPrefsProvider.future);
     await prefs.setInt(_kInterval, seconds);
     state = seconds;
+  }
+}
+
+/// Reactive haptic feedback toggle
+final hapticsEnabledProvider =
+    StateNotifierProvider<_HapticsNotifier, bool>((ref) => _HapticsNotifier(ref));
+
+class _HapticsNotifier extends StateNotifier<bool> {
+  _HapticsNotifier(this._ref) : super(true) {
+    _ref.listen<AsyncValue<SharedPreferences>>(_sharedPrefsProvider, (_, next) {
+      next.whenData((prefs) {
+        state = prefs.getBool(_kHapticsEnabled) ?? true;
+      });
+    });
+  }
+
+  final Ref _ref;
+
+  Future<void> set(bool value) async {
+    final prefs = await _ref.read(_sharedPrefsProvider.future);
+    await prefs.setBool(_kHapticsEnabled, value);
+    state = value;
   }
 }

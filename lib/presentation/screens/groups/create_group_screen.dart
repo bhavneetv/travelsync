@@ -18,6 +18,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
   DateTime? _startDate;
   DateTime? _endDate;
   bool _isLoading = false;
+  bool _isPublicGroup = false;
 
   @override
   void dispose() {
@@ -48,6 +49,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
             budget: _budgetController.text.isNotEmpty
                 ? double.tryParse(_budgetController.text)
                 : null,
+            isPublic: _isPublicGroup,
           );
 
       if (mounted) {
@@ -146,6 +148,56 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
             ),
             const SizedBox(height: 16),
 
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.lightSurface,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: AppColors.border,
+                ),
+                boxShadow: AppColors.cardShadow,
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.public_rounded,
+                    color: _isPublicGroup
+                        ? AppColors.primary
+                        : AppColors.textSecondary,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Make this group public',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                  Switch(
+                    value: _isPublicGroup,
+                    onChanged: (v) => setState(() => _isPublicGroup = v),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _isPublicGroup
+                  ? 'Anyone can discover this group and see destination details.'
+                  : 'Only invited members can discover this group.',
+              style: TextStyle(
+                color: _isPublicGroup
+                    ? AppColors.primary.withValues(alpha: 0.8)
+                    : AppColors.textSecondary,
+                fontSize: 12,
+              ),
+            ),
+            const SizedBox(height: 20),
+
             Row(
               children: [
                 Expanded(
@@ -154,11 +206,12 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                     child: Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: AppColors.darkSurface,
+                        color: AppColors.lightSurface,
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.1),
+                          color: AppColors.border,
                         ),
+                        boxShadow: AppColors.cardShadow,
                       ),
                       child: Row(
                         children: [
@@ -171,7 +224,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                                 : 'Start',
                             style: TextStyle(
                               color: _startDate != null
-                                  ? Colors.white
+                                  ? AppColors.textPrimary
                                   : AppColors.textSecondary,
                             ),
                           ),
@@ -187,11 +240,12 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                     child: Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: AppColors.darkSurface,
+                        color: AppColors.lightSurface,
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.1),
+                          color: AppColors.border,
                         ),
+                        boxShadow: AppColors.cardShadow,
                       ),
                       child: Row(
                         children: [
@@ -204,7 +258,7 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
                                 : 'End',
                             style: TextStyle(
                               color: _endDate != null
-                                  ? Colors.white
+                                  ? AppColors.textPrimary
                                   : AppColors.textSecondary,
                             ),
                           ),

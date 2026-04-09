@@ -9,6 +9,7 @@ class TravelGroup {
   final double? budget;
   final DateTime? createdAt;
   final int memberCount;
+  final bool isPublic;
 
   TravelGroup({
     required this.id,
@@ -21,6 +22,7 @@ class TravelGroup {
     this.budget,
     this.createdAt,
     this.memberCount = 0,
+    this.isPublic = false,
   });
 
   factory TravelGroup.fromJson(Map<String, dynamic> json) {
@@ -41,6 +43,7 @@ class TravelGroup {
           ? DateTime.parse(json['created_at'] as String)
           : null,
       memberCount: json['member_count'] as int? ?? 0,
+      isPublic: json['is_public'] as bool? ?? false,
     );
   }
 
@@ -53,6 +56,7 @@ class TravelGroup {
       'trip_start': tripStart?.toIso8601String().split('T').first,
       'trip_end': tripEnd?.toIso8601String().split('T').first,
       'budget': budget,
+      'is_public': isPublic,
     };
   }
 }

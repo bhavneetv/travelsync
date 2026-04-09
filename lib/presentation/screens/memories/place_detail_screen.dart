@@ -49,6 +49,7 @@ final routesForCityProvider = FutureProvider.autoDispose
           .from('routes')
           .select()
           .eq('user_id', userId)
+          .not('ended_at', 'is', null)
           .ilike('start_city', pattern)
           .order('started_at', ascending: false)
           .limit(100);
@@ -56,6 +57,7 @@ final routesForCityProvider = FutureProvider.autoDispose
           .from('routes')
           .select()
           .eq('user_id', userId)
+          .not('ended_at', 'is', null)
           .ilike('end_city', pattern)
           .order('started_at', ascending: false)
           .limit(100);
@@ -78,6 +80,7 @@ final routesForCityProvider = FutureProvider.autoDispose
           .from('routes')
           .select()
           .eq('user_id', userId)
+          .not('ended_at', 'is', null)
           .gte('start_lat', query.lat! - delta)
           .lte('start_lat', query.lat! + delta)
           .gte('start_lng', query.lng! - delta)
@@ -88,6 +91,7 @@ final routesForCityProvider = FutureProvider.autoDispose
           .from('routes')
           .select()
           .eq('user_id', userId)
+          .not('ended_at', 'is', null)
           .gte('end_lat', query.lat! - delta)
           .lte('end_lat', query.lat! + delta)
           .gte('end_lng', query.lng! - delta)
@@ -122,6 +126,7 @@ final routesForCityProvider = FutureProvider.autoDispose
             .from('routes')
             .select()
             .eq('user_id', userId)
+          .not('ended_at', 'is', null)
             .order('started_at', ascending: false)
             .limit(300);
 
@@ -160,6 +165,7 @@ final routesForCityProvider = FutureProvider.autoDispose
         .from('routes')
         .select()
         .eq('user_id', userId)
+      .not('ended_at', 'is', null)
         .order('started_at', ascending: false)
         .limit(50);
     return List<Map<String, dynamic>>.from(data)

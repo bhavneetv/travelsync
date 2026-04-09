@@ -1,8 +1,11 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme.dart';
+import '../../../services/app_settings_service.dart';
 
-class AppShell extends StatelessWidget {
+class AppShell extends ConsumerWidget {
   final Widget child;
 
   const AppShell({super.key, required this.child});
@@ -18,66 +21,103 @@ class AppShell extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final index = _currentIndex(context);
+    final hapticsEnabled = ref.watch(hapticsEnabledProvider);
 
     return Scaffold(
       body: child,
-      bottomNavigationBar: Container(
-        color: AppColors.lightBg,
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-        child: Container(
-          decoration: BoxDecoration(
-            color: AppColors.lightSurface,
-            borderRadius: BorderRadius.circular(28),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.08),
-                blurRadius: 24,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _NavItem(
-                    icon: Icons.home_rounded,
-                    label: 'Home',
-                    isActive: index == 0,
-                    onTap: index == 0 ? null : () => context.go('/'),
+      bottomNavigationBar: _StitchBottomNav(
+        currentIndex: index,
+        onTap: (i) {
+          if (hapticsEnabled) {
+            HapticFeedback.selectionClick();
+          }
+          switch (i) {
+            case 0:
+              context.go('/');
+            case 1:
+              context.go('/stats');
+            case 2:
+              context.go('/memories');
+            case 3:
+              context.go('/groups');
+            case 4:
+              context.go('/profile');
+          }
+        },
+      ),
+    );
+  }
+}
+
+/// Stitch-design bottom navigation bar:
+/// - Solid white background
+/// - Thin top border (#E2E8F0)
+/// - Active: blue icon + blue label
+/// - Inactive: muted slate icons
+class _StitchBottomNav extends StatelessWidget {
+  final int currentIndex;
+  final ValueChanged<int> onTap;
+
+  const _StitchBottomNav({
+    required this.currentIndex,
+    required this.onTap,
+  });
+
+  static const _items = [
+    _NavDef(icon: Icons.home_outlined, activeIcon: Icons.home_rounded, label: 'Home'),
+    _NavDef(icon: Icons.bar_chart_outlined, activeIcon: Icons.bar_chart_rounded, label: 'Stats'),
+    _NavDef(icon: Icons.explore_outlined, activeIcon: Icons.explore_rounded, label: 'Travel'),
+    _NavDef(icon: Icons.group_outlined, activeIcon: Icons.group_rounded, label: 'Groups'),
+    _NavDef(icon: Icons.person_outline_rounded, activeIcon: Icons.person_rounded, label: 'Profile'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.lightSurface,
+        border: Border(
+          top: BorderSide(color: AppColors.border, width: 1),
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 60,
+          child: Row(
+            children: List.generate(_items.length, (i) {
+              final item = _items[i];
+              final isActive = i == currentIndex;
+              return Expanded(
+                child: InkWell(
+                  onTap: i == currentIndex ? null : () => onTap(i),
+                  splashColor: AppColors.primaryLight.withValues(alpha: 0.3),
+                  highlightColor: Colors.transparent,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        isActive ? item.activeIcon : item.icon,
+                        size: 22,
+                        color: isActive ? AppColors.primary : AppColors.textMuted,
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        item.label,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
+                          color: isActive ? AppColors.primary : AppColors.textMuted,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    ],
                   ),
-                  _NavItem(
-                    icon: Icons.map_rounded,
-                    label: 'Stats',
-                    isActive: index == 1,
-                    onTap: index == 1 ? null : () => context.go('/stats'),
-                  ),
-                  _NavItem(
-                    icon: Icons.explore_rounded,
-                    label: 'Travel',
-                    isActive: index == 2,
-                    onTap: index == 2 ? null : () => context.go('/memories'),
-                  ),
-                  _NavItem(
-                    icon: Icons.groups_rounded,
-                    label: 'Groups',
-                    isActive: index == 3,
-                    onTap: index == 3 ? null : () => context.go('/groups'),
-                  ),
-                  _NavItem(
-                    icon: Icons.person_rounded,
-                    label: 'Profile',
-                    isActive: index == 4,
-                    onTap: index == 4 ? null : () => context.go('/profile'),
-                  ),
-                ],
-              ),
-            ),
+                ),
+              );
+            }),
           ),
         ),
       ),
@@ -85,59 +125,13 @@ class AppShell extends StatelessWidget {
   }
 }
 
-class _NavItem extends StatelessWidget {
+class _NavDef {
   final IconData icon;
+  final IconData activeIcon;
   final String label;
-  final bool isActive;
-  final VoidCallback? onTap;
-
-  const _NavItem({
+  const _NavDef({
     required this.icon,
+    required this.activeIcon,
     required this.label,
-    required this.isActive,
-    required this.onTap,
   });
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: Container(
-          decoration: BoxDecoration(
-            color: isActive ? AppColors.textDark : Colors.transparent,
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  icon,
-                  color: isActive
-                      ? AppColors.lightSurface
-                      : AppColors.textDarkSecondary,
-                  size: 22,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  label.toUpperCase(),
-                  style: TextStyle(
-                    color: isActive
-                        ? AppColors.lightSurface
-                        : AppColors.textDarkSecondary,
-                    fontSize: 11,
-                    letterSpacing: 0.8,
-                    fontWeight: isActive ? FontWeight.w700 : FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }

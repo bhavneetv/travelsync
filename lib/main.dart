@@ -87,7 +87,7 @@ class _BootstrapAppState extends State<_BootstrapApp> {
             debugShowCheckedModeBanner: false,
             theme: AppTheme.lightTheme,
             darkTheme: AppTheme.darkTheme,
-            themeMode: ThemeMode.dark,
+            themeMode: ThemeMode.light,
             home: const Scaffold(
               body: Center(child: CircularProgressIndicator()),
             ),
@@ -99,7 +99,7 @@ class _BootstrapAppState extends State<_BootstrapApp> {
             debugShowCheckedModeBanner: false,
             theme: AppTheme.lightTheme,
             darkTheme: AppTheme.darkTheme,
-            themeMode: ThemeMode.dark,
+            themeMode: ThemeMode.light,
             home: Scaffold(
               body: Center(
                 child: Padding(
@@ -133,7 +133,7 @@ class TravelSyncApp extends ConsumerWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.dark,
+      themeMode: ThemeMode.light,
       routerConfig: router,
     );
   }

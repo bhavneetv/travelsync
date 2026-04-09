@@ -45,7 +45,13 @@ class _JoinGroupScreenState extends ConsumerState<JoinGroupScreen> {
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Joined "${group.name}"!')),
+            SnackBar(
+              content: Text(
+                group.isPublic
+                    ? 'Joined public group "${group.name}"!'
+                    : 'Joined "${group.name}"!',
+              ),
+            ),
           );
           context.pop();
         }
@@ -53,7 +59,7 @@ class _JoinGroupScreenState extends ConsumerState<JoinGroupScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          const SnackBar(content: Text('Unable to join this group right now')),
         );
       }
     } finally {

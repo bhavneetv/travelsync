@@ -1,9 +1,15 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AppConstants {
-  static const String supabaseUrl = 'https://xyyvjidgwmluwsnhwzrn.supabase.co';
-  static const String supabaseAnonKey =
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh5eXZqaWRnd21sdXdzbmh3enJuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1MjAzODQsImV4cCI6MjA4ODA5NjM4NH0.cnJBCzLXQD-nbCXUlB5UHJEhJgn-s8qaL-RsdS3G4Pk';
+  static const String supabaseUrl = String.fromEnvironment(
+    'SUPABASE_URL',
+    defaultValue: 'https://xyyvjidgwmluwsnhwzrn.supabase.co',
+  );
+  static const String supabaseAnonKey = String.fromEnvironment(
+    'SUPABASE_ANON_KEY',
+    defaultValue:
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh5eXZqaWRnd21sdXdzbmh3enJuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1MjAzODQsImV4cCI6MjA4ODA5NjM4NH0.cnJBCzLXQD-nbCXUlB5UHJEhJgn-s8qaL-RsdS3G4Pk',
+  );
 
   // Free API endpoints
   static const String nominatimBaseUrl = 'https://nominatim.openstreetmap.org';

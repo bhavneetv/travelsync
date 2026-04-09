@@ -46,8 +46,8 @@ class LocationService {
   _stationaryAnchor; // The position where user first became stationary
   DateTime? _stationaryStartTime; // When user first became stationary at anchor
   bool _destinationDetected = false;
-  static const double _destinationRadiusKm = 5.0; // 5km radius
-  static const Duration _destinationDuration = Duration(hours: 5); // 5 hours
+  static const double _destinationRadiusKm = 0.4; // 400m rest radius
+  static const Duration _destinationDuration = Duration(hours: 4); // 4 hours
 
   LocationService(this._ref);
 
@@ -197,7 +197,7 @@ class LocationService {
               _routePoints,
             );
 
-            // Destination detection: check if user moved > 5km from anchor
+            // Destination detection: check if user moved outside rest radius
             _updateDestinationDetection(position);
 
             // Only save to DB if moved >100m from last saved position
@@ -212,7 +212,7 @@ class LocationService {
             }
           },
           onError: (_, __) {
-            stopTracking(completeRoute: true, markDestination: true);
+            stopTracking(completeRoute: true, markDestination: false);
           },
         );
 
@@ -242,7 +242,7 @@ class LocationService {
       _stationaryStartTime = DateTime.now();
       _destinationDetected = false;
     } else {
-      // User is still within 5km — check duration
+      // User is still within rest radius — check duration
       if (_stationaryStartTime != null) {
         final elapsed = DateTime.now().difference(_stationaryStartTime!);
         if (elapsed >= _destinationDuration) {
@@ -303,6 +303,36 @@ class LocationService {
     _startCityName ??= startCity;
 
     try {
+      final openRoute = await AppConstants.supabase
+          .from('routes')
+          .select('id, started_at, start_city, distance_km')
+          .eq('user_id', userId)
+          .isFilter('ended_at', null)
+          .order('started_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+
+      if (openRoute != null) {
+        _ref.read(activeRouteIdProvider.notifier).state = openRoute['id'] as int;
+        _startCityName = openRoute['start_city'] as String? ?? _startCityName;
+
+        final startedAtRaw = openRoute['started_at'] as String?;
+        if (startedAtRaw != null && startedAtRaw.isNotEmpty) {
+          _routeStartTime = DateTime.tryParse(startedAtRaw) ?? _routeStartTime;
+        }
+
+        final restoredDistance =
+            (openRoute['distance_km'] as num?)?.toDouble() ?? 0.0;
+        if (restoredDistance > _accumulatedDistanceKm) {
+          _accumulatedDistanceKm = restoredDistance;
+          _ref.read(accumulatedDistanceKmProvider.notifier).state =
+              _accumulatedDistanceKm;
+        }
+
+        _lastRouteCreateAttempt = DateTime.now();
+        return;
+      }
+
       final result = await AppConstants.supabase
           .from('routes')
           .insert({
@@ -749,14 +779,14 @@ class LocationService {
 
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        await stopTracking(completeRoute: true, markDestination: true);
+        await stopTracking(completeRoute: true, markDestination: false);
         return;
       }
 
       final permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
-        await stopTracking(completeRoute: true, markDestination: true);
+        await stopTracking(completeRoute: true, markDestination: false);
         return;
       }
 
@@ -848,9 +878,6 @@ class LocationService {
   }) {
     if (segmentMeters < 5) return false;
 
-    // Guard against rare GPS spikes that can badly inflate route distance.
-    if (segmentMeters > 3000) return false;
-
     final prevTs = previous.timestamp;
     final currTs = current.timestamp;
     final seconds = currTs.difference(prevTs).inSeconds;
@@ -858,6 +885,10 @@ class LocationService {
       final speedMps = segmentMeters / seconds;
       final speedKmh = speedMps * 3.6;
       if (speedKmh > 220) return false;
+    } else if (segmentMeters > 10000) {
+      // Timestamp glitches can report zero/negative intervals; only reject
+      // obviously impossible jumps in that case.
+      return false;
     }
 
     return true;

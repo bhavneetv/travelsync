@@ -135,13 +135,15 @@ void _backgroundMain(ServiceInstance service) async {
   final prefs = await SharedPreferences.getInstance();
   int intervalSeconds = prefs.getInt(_kInterval) ?? 0;
 
+  await _restoreOpenRoute(sb, _state);
+
   // Android foreground service notification
   if (service is AndroidServiceInstance) {
     await service.setAsForegroundService();
     _notify(
       service,
       'TrailSync · Background tracking active',
-      'Using your location to store routes (${_intervalLabel(intervalSeconds)})',
+      '${_state.totalDistKm.toStringAsFixed(1)} km covered (${_intervalLabel(intervalSeconds)})',
     );
   }
 
@@ -154,13 +156,13 @@ void _backgroundMain(ServiceInstance service) async {
         _notify(
           service,
           'TrailSync · Background tracking active',
-          'Using your location to store routes (${_intervalLabel(intervalSeconds)})',
+          '${_state.totalDistKm.toStringAsFixed(1)} km covered (${_intervalLabel(intervalSeconds)})',
         );
       }
     }
   });
   service.on('stop').listen((_) async {
-    await _endRoute(sb, _state);
+    await _endRoute(sb, _state, isDestination: false);
     service.stopSelf();
   });
 
@@ -179,6 +181,7 @@ final _state = _TrackState();
 
 class _TrackState {
   Position? lastSaved;
+  Position? lastAccumulated;
   int? activeRouteId;
   DateTime? routeStart;
   double totalDistKm = 0;
@@ -191,6 +194,7 @@ class _TrackState {
 
   void reset() {
     lastSaved = null;
+    lastAccumulated = null;
     activeRouteId = null;
     routeStart = null;
     totalDistKm = 0;
@@ -220,7 +224,7 @@ Future<void> _streamLoop(
 
   await for (final pos in stream) {
     if (!(prefs.getBool(_kAlwaysOn) ?? false)) {
-      await _endRoute(sb, _state);
+      await _endRoute(sb, _state, isDestination: false);
       service.stopSelf();
       return;
     }
@@ -239,7 +243,7 @@ Future<void> _intervalLoop(
 ) async {
   while (true) {
     if (!(prefs.getBool(_kAlwaysOn) ?? false)) {
-      await _endRoute(sb, _state);
+      await _endRoute(sb, _state, isDestination: false);
       service.stopSelf();
       return;
     }
@@ -288,18 +292,24 @@ Future<void> _processPosition(
   }
 
   // Accumulate distance & polyline
-  if (state.lastSaved != null) {
+  if (state.lastAccumulated != null) {
     final seg = Geolocator.distanceBetween(
-      state.lastSaved!.latitude, state.lastSaved!.longitude,
+      state.lastAccumulated!.latitude,
+      state.lastAccumulated!.longitude,
       pos.latitude, pos.longitude,
     );
-    if (seg >= 5 && seg <= 3000) {
+    if (_isValidSegment(
+      segmentMeters: seg,
+      previous: state.lastAccumulated!,
+      current: pos,
+    )) {
       state.totalDistKm += seg / 1000;
       _appendPoint(pos, state);
     }
   } else {
     _appendPoint(pos, state);
   }
+  state.lastAccumulated = pos;
 
   // Save position if moved ≥100 m
   final distFromLast = state.lastSaved == null
@@ -355,6 +365,8 @@ Future<void> _processPosition(
         );
       }
 
+      await _syncRouteProgress(sb, state);
+
       // New places check (cities/countries/states)
       await _checkNewPlaces(userId, geoData, pos, sb);
     } catch (_) {}
@@ -376,6 +388,32 @@ Future<void> _startRoute(
   if (userId == null) return;
   state.creatingRoute = true;
   try {
+    final openRoute = await sb
+        .from('routes')
+        .select('id, started_at, start_city, distance_km')
+        .eq('user_id', userId)
+        .isFilter('ended_at', null)
+        .order('started_at', ascending: false)
+        .limit(1)
+        .maybeSingle();
+
+    if (openRoute != null) {
+      state.activeRouteId = openRoute['id'] as int;
+      state.startCity = openRoute['start_city'] as String?;
+
+      final startedAtRaw = openRoute['started_at'] as String?;
+      if (startedAtRaw != null && startedAtRaw.isNotEmpty) {
+        state.routeStart = DateTime.tryParse(startedAtRaw) ?? state.routeStart;
+      }
+
+      final restoredDistance =
+          (openRoute['distance_km'] as num?)?.toDouble() ?? 0.0;
+      if (restoredDistance > state.totalDistKm) {
+        state.totalDistKm = restoredDistance;
+      }
+      return;
+    }
+
     final geo = await _reverseGeocode(pos.latitude, pos.longitude);
     state.startCity = geo['village'] ?? geo['city'] ?? geo['town'];
     final result = await sb.from('routes').insert({
@@ -393,7 +431,11 @@ Future<void> _startRoute(
   }
 }
 
-Future<void> _endRoute(SupabaseClient sb, _TrackState state) async {
+Future<void> _endRoute(
+  SupabaseClient sb,
+  _TrackState state, {
+  required bool isDestination,
+}) async {
   final userId = sb.auth.currentUser?.id;
   if (userId == null || state.activeRouteId == null) {
     state.reset();
@@ -408,6 +450,10 @@ Future<void> _endRoute(SupabaseClient sb, _TrackState state) async {
     final duration = state.routeStart != null
         ? DateTime.now().difference(state.routeStart!).inMinutes
         : null;
+    final avgSpeed =
+      (duration != null && duration > 0 && state.totalDistKm > 0)
+      ? state.totalDistKm / (duration / 60)
+      : null;
     final polyline = jsonEncode(state.points);
 
     await sb.from('routes').update({
@@ -417,10 +463,11 @@ Future<void> _endRoute(SupabaseClient sb, _TrackState state) async {
       'ended_at': DateTime.now().toIso8601String(),
       'distance_km': state.totalDistKm > 0 ? state.totalDistKm : null,
       'duration_min': duration,
+      'avg_speed_kmh': avgSpeed,
       'polyline': polyline,
       'name':
           '${state.startCity ?? 'Unknown'} → ${endCity ?? 'Unknown'}',
-      'is_destination': false,
+      'is_destination': isDestination,
     }).eq('id', state.activeRouteId!);
 
     if (state.totalDistKm > 0) {
@@ -441,6 +488,81 @@ Future<void> _endRoute(SupabaseClient sb, _TrackState state) async {
   } finally {
     state.reset();
   }
+}
+
+Future<void> _restoreOpenRoute(SupabaseClient sb, _TrackState state) async {
+  final userId = sb.auth.currentUser?.id;
+  if (userId == null) return;
+
+  try {
+    final openRoute = await sb
+        .from('routes')
+        .select('id, started_at, start_city, distance_km, polyline')
+        .eq('user_id', userId)
+        .isFilter('ended_at', null)
+        .order('started_at', ascending: false)
+        .limit(1)
+        .maybeSingle();
+
+    if (openRoute == null) return;
+
+    state.activeRouteId = openRoute['id'] as int;
+    state.startCity = openRoute['start_city'] as String?;
+    state.totalDistKm = (openRoute['distance_km'] as num?)?.toDouble() ?? 0.0;
+
+    final startedAtRaw = openRoute['started_at'] as String?;
+    if (startedAtRaw != null && startedAtRaw.isNotEmpty) {
+      state.routeStart = DateTime.tryParse(startedAtRaw) ?? DateTime.now();
+    }
+
+    final polylineRaw = openRoute['polyline'];
+    if (polylineRaw is String && polylineRaw.isNotEmpty) {
+      final decoded = jsonDecode(polylineRaw);
+      if (decoded is List) {
+        state.points.clear();
+        for (final point in decoded) {
+          if (point is List && point.length >= 2) {
+            final lat = (point[0] as num?)?.toDouble();
+            final lng = (point[1] as num?)?.toDouble();
+            if (lat != null && lng != null) {
+              state.points.add([lat, lng]);
+            }
+          }
+        }
+      }
+    }
+  } catch (_) {}
+}
+
+Future<void> _syncRouteProgress(SupabaseClient sb, _TrackState state) async {
+  if (state.activeRouteId == null) return;
+
+  try {
+    await sb.from('routes').update({
+      'distance_km': state.totalDistKm > 0 ? state.totalDistKm : null,
+      'polyline': jsonEncode(state.points),
+    }).eq('id', state.activeRouteId!);
+  } catch (_) {}
+}
+
+bool _isValidSegment({
+  required double segmentMeters,
+  required Position previous,
+  required Position current,
+}) {
+  if (segmentMeters < 5) return false;
+
+  final prevTs = previous.timestamp;
+  final currTs = current.timestamp;
+  final seconds = currTs.difference(prevTs).inSeconds;
+  if (seconds > 0) {
+    final speedKmh = (segmentMeters / seconds) * 3.6;
+    if (speedKmh > 220) return false;
+  } else if (segmentMeters > 10000) {
+    return false;
+  }
+
+  return true;
 }
 
 void _appendPoint(Position pos, _TrackState state) {
@@ -466,13 +588,13 @@ void _checkDestination(
     state.anchor!.latitude, state.anchor!.longitude,
     pos.latitude, pos.longitude,
   );
-  if (distM > 5000) {
+  if (distM > 400) {
     state.anchor = pos;
     state.anchorStart = DateTime.now();
   } else if (DateTime.now().difference(state.anchorStart!) >=
-      const Duration(hours: 5)) {
-    // User has stayed in same 5km for 5 hrs → destination reached, start fresh
-    _endRoute(sb, state);
+      const Duration(hours: 4)) {
+    // User stayed in a small area for 4h -> destination reached.
+    _endRoute(sb, state, isDestination: true);
     state.anchor = null;
     state.anchorStart = null;
   }
@@ -507,7 +629,16 @@ Future<void> _checkNewPlaces(
         'xp_awarded': true,
       });
       try {
-        await sb.from('users').update({'villages_visited': 1}).eq('id', userId);
+        final user = await sb
+            .from('users')
+            .select('villages_visited')
+            .eq('id', userId)
+            .single();
+        final current = (user['villages_visited'] as num?)?.toInt() ?? 0;
+        await sb
+            .from('users')
+            .update({'villages_visited': current + 1})
+            .eq('id', userId);
       } catch (_) {}
     }
   }

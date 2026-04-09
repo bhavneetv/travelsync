@@ -2,19 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../../core/constants.dart';
+import '../../../core/theme.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/location_service.dart';
 import '../../../services/xp_service.dart';
 import '../../../data/models/visited_place.dart';
 
-// ─── Palette (matches StatsScreen, no purple) ────────────────────────────────
-// Primary accent : #FFD166  (gold/amber)
-// Secondary accent: #3EF4A8  (mint green)
-// Blue accent    : #3E8EF4
-// Background     : #0A0A0F
-// Card           : #131318
-// Border         : rgba(255,255,255,0.06)
+// ─── Providers ────────────────────────────────────────────────────────────────
 
 final achievementsProvider =
     FutureProvider.autoDispose<List<Achievement>>((ref) async {
@@ -28,24 +24,56 @@ final achievementsProvider =
   return (data as List).map((a) => Achievement.fromJson(a)).toList();
 });
 
-final profileDistanceKmProvider = FutureProvider.autoDispose<double>((ref) async {
+final profileJourneyStatsProvider =
+    FutureProvider.autoDispose<Map<String, num>>((ref) async {
   final userId = AppConstants.supabase.auth.currentUser?.id;
-  if (userId == null) return 0;
+  if (userId == null) {
+    return {
+      'distanceKm': 0,
+      'cities': 0,
+      'countries': 0,
+      'villages': 0,
+    };
+  }
 
-  final rows = await AppConstants.supabase
-      .from('routes')
-      .select('distance_km')
-      .eq('user_id', userId)
-      .not('distance_km', 'is', null);
+  final results = await Future.wait([
+    AppConstants.supabase
+        .from('routes')
+        .select('distance_km')
+        .eq('user_id', userId)
+        .not('distance_km', 'is', null),
+    AppConstants.supabase
+        .from('visited_cities')
+        .select('id')
+      .eq('user_id', userId),
+    AppConstants.supabase
+        .from('visited_countries')
+        .select('id')
+      .eq('user_id', userId),
+    AppConstants.supabase
+        .from('visited_villages')
+        .select('id')
+      .eq('user_id', userId),
+  ]);
+
+  final routes = results[0] as List;
+  final cities = results[1] as List;
+  final countries = results[2] as List;
+  final villages = results[3] as List;
 
   var total = 0.0;
-  for (final row in rows as List) {
+  for (final row in routes) {
     total += (row['distance_km'] as num?)?.toDouble() ?? 0.0;
   }
-  return total;
+  return {
+    'distanceKm': total,
+    'cities': cities.length,
+    'countries': countries.length,
+    'villages': villages.length,
+  };
 });
 
-// ─── Badge catalogue (order matches icon row) ────────────────────────────────
+// ─── Badge catalogue ──────────────────────────────────────────────────────────
 const _catalogKeys = [
   'early_bird',
   'night_owl',
@@ -56,6 +84,8 @@ const _catalogKeys = [
   'streak_master',
 ];
 
+// ─── Profile Screen ───────────────────────────────────────────────────────────
+
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
@@ -65,26 +95,37 @@ class ProfileScreen extends ConsumerWidget {
     final achievementsAsync = ref.watch(achievementsProvider);
     final isTracking = ref.watch(isTrackingProvider);
     final liveRouteKm = ref.watch(accumulatedDistanceKmProvider);
-    final persistedDistanceAsync = ref.watch(profileDistanceKmProvider);
+    final journeyStatsAsync = ref.watch(profileJourneyStatsProvider);
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.light,
+      value: SystemUiOverlayStyle.dark,
       child: Scaffold(
-        backgroundColor: const Color(0xFF0A0A0F),
+        backgroundColor: AppColors.lightBg,
         body: userAsync.when(
           data: (user) {
             if (user == null) {
-              return const Center(
-                child: Text('Not logged in',
-                    style: TextStyle(color: Colors.white54)),
+              return Center(
+                child: Text(
+                  'Not logged in',
+                  style: GoogleFonts.manrope(color: AppColors.textSecondary),
+                ),
               );
             }
 
             final level = user.travelLevel;
             final progress = XPService.levelProgress(user.totalXp);
             final displayName = user.fullName ?? user.username;
-            final distanceKm = persistedDistanceAsync.valueOrNull ??
-              (user.totalDistanceKm + (isTracking ? liveRouteKm : 0));
+            final journeyStats = journeyStatsAsync.valueOrNull;
+            final persistedDistance =
+              journeyStats?['distanceKm']?.toDouble() ??
+                user.totalDistanceKm;
+            final distanceKm = persistedDistance + (isTracking ? liveRouteKm : 0);
+            final citiesVisited =
+              journeyStats?['cities']?.toInt() ?? user.citiesVisited;
+            final countriesVisited = journeyStats?['countries']?.toInt() ??
+              user.countriesVisited;
+            final villagesVisited = journeyStats?['villages']?.toInt() ??
+              user.villagesVisited;
 
             return CustomScrollView(
               physics: const BouncingScrollPhysics(),
@@ -93,29 +134,32 @@ class ProfileScreen extends ConsumerWidget {
                 SliverAppBar(
                   expandedHeight: 0,
                   floating: true,
-                  backgroundColor: const Color(0xFF0A0A0F),
+                  backgroundColor: AppColors.lightSurface,
+                  surfaceTintColor: Colors.transparent,
                   elevation: 0,
-                  title: const Text(
+                  scrolledUnderElevation: 0,
+                  title: Text(
                     'Profile',
-                    style: TextStyle(
-                      color: Colors.white,
+                    style: GoogleFonts.manrope(
+                      color: AppColors.textPrimary,
                       fontSize: 20,
                       fontWeight: FontWeight.w700,
-                      letterSpacing: -0.5,
                     ),
                   ),
+                  bottom: PreferredSize(
+                    preferredSize: const Size.fromHeight(1),
+                    child: Container(color: AppColors.border, height: 1),
+                  ),
                   actions: [
-                    // Edit button
                     IconButton(
-                      icon: const Icon(Icons.edit_rounded,
-                          color: Colors.white70, size: 20),
+                      icon: const Icon(Icons.edit_rounded, size: 20),
+                      color: AppColors.textSecondary,
                       onPressed: () => context.push('/profile/edit'),
                       tooltip: 'Edit profile',
                     ),
-                    // Settings button
                     IconButton(
-                      icon: const Icon(Icons.settings_rounded,
-                          color: Colors.white70, size: 20),
+                      icon: const Icon(Icons.settings_rounded, size: 20),
+                      color: AppColors.textSecondary,
                       onPressed: () => context.push('/profile/settings'),
                       tooltip: 'Settings',
                     ),
@@ -124,10 +168,10 @@ class ProfileScreen extends ConsumerWidget {
                 ),
 
                 SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 40),
+                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 40),
                   sliver: SliverList(
                     delegate: SliverChildListDelegate([
-                      // ── Hero card ──────────────────────────────────────
+                      // ── Hero card ─────────────────────────────────────
                       _HeroCard(
                         displayName: displayName,
                         username: user.username,
@@ -139,30 +183,30 @@ class ProfileScreen extends ConsumerWidget {
                       ),
                       const SizedBox(height: 16),
 
-                      // ── Quick stats ────────────────────────────────────
+                      // ── Quick stats ───────────────────────────────────
                       _QuickStats(
-                        countries: user.countriesVisited,
-                        cities: user.citiesVisited,
-                        villages: user.villagesVisited,
+                        countries: countriesVisited,
+                        cities: citiesVisited,
+                        villages: villagesVisited,
                         km: distanceKm,
                         onTap: () => context.push('/memories'),
                       ),
                       const SizedBox(height: 28),
 
-                      // ── Earned badges ──────────────────────────────────
-                      const _SectionLabel('Earned Badges'),
+                      // ── Earned badges ─────────────────────────────────
+                      _SectionLabel('Earned Badges'),
                       const SizedBox(height: 12),
                       achievementsAsync.when(
                         data: (list) => list.isEmpty
-                            ? _EmptyBadges()
+                            ? const _EmptyBadges()
                             : _EarnedBadgeGrid(achievements: list),
                         loading: () => const _InlineLoader(),
                         error: (_, __) => const _InlineError(),
                       ),
                       const SizedBox(height: 28),
 
-                      // ── All badges ─────────────────────────────────────
-                      const _SectionLabel('All Badges'),
+                      // ── All badges ────────────────────────────────────
+                      _SectionLabel('All Badges'),
                       const SizedBox(height: 12),
                       ..._catalogKeys.map((key) {
                         final info = XPService.getBadgeInfo(key);
@@ -182,14 +226,15 @@ class ProfileScreen extends ConsumerWidget {
           },
           loading: () => const Center(
             child: CircularProgressIndicator(
-              valueColor:
-                  AlwaysStoppedAnimation<Color>(Color(0xFFFFD166)),
+              valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
               strokeWidth: 2.5,
             ),
           ),
           error: (e, _) => Center(
-            child: Text('Error: $e',
-                style: const TextStyle(color: Colors.white54)),
+            child: Text(
+              'Error: $e',
+              style: GoogleFonts.inter(color: AppColors.textSecondary),
+            ),
           ),
         ),
       ),
@@ -219,14 +264,11 @@ class _HeroCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(22),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFF131318),
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(
-          color: Colors.white.withOpacity(0.06),
-          width: 1,
-        ),
+        color: AppColors.lightSurface,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: AppColors.cardShadow,
       ),
       child: Column(
         children: [
@@ -238,37 +280,23 @@ class _HeroCard extends StatelessWidget {
               Stack(
                 children: [
                   Container(
-                    width: 76,
-                    height: 76,
+                    width: 72,
+                    height: 72,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFFFFD166), Color(0xFFFF9F43)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFFFFD166).withOpacity(0.2),
-                          blurRadius: 16,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
+                      color: AppColors.primaryLight,
                     ),
                     child: avatarUrl != null
                         ? ClipOval(
-                            child: Image.network(
-                              avatarUrl!,
-                              fit: BoxFit.cover,
-                            ),
+                            child: Image.network(avatarUrl!, fit: BoxFit.cover),
                           )
                         : Center(
                             child: Text(
                               displayName[0].toUpperCase(),
-                              style: const TextStyle(
-                                fontSize: 30,
+                              style: GoogleFonts.manrope(
+                                fontSize: 28,
                                 fontWeight: FontWeight.w700,
-                                color: Color(0xFF0A0A0F),
+                                color: AppColors.primaryDark,
                               ),
                             ),
                           ),
@@ -281,19 +309,13 @@ class _HeroCard extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 7, vertical: 3),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFFFD166),
+                        color: AppColors.primary,
                         borderRadius: BorderRadius.circular(8),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFFFFD166).withOpacity(0.25),
-                            blurRadius: 6,
-                          ),
-                        ],
                       ),
                       child: Text(
                         'L$level',
-                        style: const TextStyle(
-                          color: Color(0xFF0A0A0F),
+                        style: GoogleFonts.inter(
+                          color: Colors.white,
                           fontWeight: FontWeight.w800,
                           fontSize: 10,
                           letterSpacing: 0.3,
@@ -303,7 +325,7 @@ class _HeroCard extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(width: 18),
+              const SizedBox(width: 16),
 
               // Name + username + level name
               Expanded(
@@ -312,11 +334,10 @@ class _HeroCard extends StatelessWidget {
                   children: [
                     Text(
                       displayName,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
+                      style: GoogleFonts.manrope(
+                        color: AppColors.textPrimary,
+                        fontSize: 19,
                         fontWeight: FontWeight.w700,
-                        letterSpacing: -0.4,
                         height: 1.1,
                       ),
                       maxLines: 1,
@@ -325,8 +346,8 @@ class _HeroCard extends StatelessWidget {
                     const SizedBox(height: 3),
                     Text(
                       '@$username',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.4),
+                      style: GoogleFonts.inter(
+                        color: AppColors.textMuted,
                         fontSize: 13,
                         fontWeight: FontWeight.w500,
                       ),
@@ -336,17 +357,13 @@ class _HeroCard extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 9, vertical: 4),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFFFD166).withOpacity(0.12),
+                        color: AppColors.primaryLight,
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: const Color(0xFFFFD166).withOpacity(0.25),
-                          width: 1,
-                        ),
                       ),
                       child: Text(
                         XPService.getLevelName(level),
-                        style: const TextStyle(
-                          color: Color(0xFFFFD166),
+                        style: GoogleFonts.inter(
+                          color: AppColors.primaryDark,
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
                           letterSpacing: 0.2,
@@ -361,13 +378,13 @@ class _HeroCard extends StatelessWidget {
 
           // Bio
           if (bio != null && bio!.isNotEmpty) ...[
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
             Align(
               alignment: Alignment.centerLeft,
               child: Text(
                 bio!,
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.55),
+                style: GoogleFonts.inter(
+                  color: AppColors.textSecondary,
                   fontSize: 13,
                   height: 1.5,
                 ),
@@ -375,15 +392,15 @@ class _HeroCard extends StatelessWidget {
             ),
           ],
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 18),
 
           // XP bar
           Row(
             children: [
               Text(
                 '$totalXp XP',
-                style: const TextStyle(
-                  color: Color(0xFFFFD166),
+                style: GoogleFonts.inter(
+                  color: AppColors.primary,
                   fontWeight: FontWeight.w600,
                   fontSize: 12,
                 ),
@@ -391,8 +408,8 @@ class _HeroCard extends StatelessWidget {
               const Spacer(),
               Text(
                 '${(progress * 100).toStringAsFixed(0)}% to next level',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.35),
+                style: GoogleFonts.inter(
+                  color: AppColors.textMuted,
                   fontSize: 12,
                 ),
               ),
@@ -404,9 +421,8 @@ class _HeroCard extends StatelessWidget {
             child: LinearProgressIndicator(
               value: progress,
               minHeight: 6,
-              backgroundColor: Colors.white.withOpacity(0.08),
-              valueColor:
-                  const AlwaysStoppedAnimation<Color>(Color(0xFFFFD166)),
+              backgroundColor: AppColors.surfaceContainer,
+              valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primary),
             ),
           ),
         ],
@@ -438,7 +454,7 @@ class _QuickStats extends StatelessWidget {
           icon: Icons.public_rounded,
           value: '$countries',
           label: 'Countries',
-          color: const Color(0xFF3E8EF4),
+          iconColor: AppColors.primary,
           onTap: onTap,
         ),
         const SizedBox(width: 8),
@@ -446,7 +462,7 @@ class _QuickStats extends StatelessWidget {
           icon: Icons.location_city_rounded,
           value: '$cities',
           label: 'Cities',
-          color: const Color(0xFF3EF4A8),
+          iconColor: const Color(0xFF0891B2),
           onTap: onTap,
         ),
         const SizedBox(width: 8),
@@ -454,7 +470,7 @@ class _QuickStats extends StatelessWidget {
           icon: Icons.holiday_village_rounded,
           value: '$villages',
           label: 'Villages',
-          color: const Color(0xFFFF9F43),
+          iconColor: const Color(0xFF059669),
           onTap: onTap,
         ),
         const SizedBox(width: 8),
@@ -462,7 +478,7 @@ class _QuickStats extends StatelessWidget {
           icon: Icons.straighten_rounded,
           value: km.toStringAsFixed(1),
           label: 'KM',
-          color: const Color(0xFFFFD166),
+          iconColor: const Color(0xFFD97706),
         ),
       ],
     );
@@ -472,14 +488,14 @@ class _QuickStats extends StatelessWidget {
 class _StatPill extends StatelessWidget {
   final IconData icon;
   final String value, label;
-  final Color color;
+  final Color iconColor;
   final VoidCallback? onTap;
 
   const _StatPill({
     required this.icon,
     required this.value,
     required this.label,
-    required this.color,
+    required this.iconColor,
     this.onTap,
   });
 
@@ -491,12 +507,9 @@ class _StatPill extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 14),
           decoration: BoxDecoration(
-            color: const Color(0xFF131318),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: Colors.white.withOpacity(0.06),
-              width: 1,
-            ),
+            color: AppColors.lightSurface,
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: AppColors.cardShadow,
           ),
           child: Column(
             children: [
@@ -504,26 +517,25 @@ class _StatPill extends StatelessWidget {
                 width: 32,
                 height: 32,
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.14),
+                  color: iconColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(icon, color: color, size: 16),
+                child: Icon(icon, color: iconColor, size: 16),
               ),
-              const SizedBox(height: 7),
+              const SizedBox(height: 8),
               Text(
                 value,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 17,
+                style: GoogleFonts.manrope(
+                  color: AppColors.textPrimary,
+                  fontSize: 16,
                   fontWeight: FontWeight.w700,
-                  letterSpacing: -0.3,
                 ),
               ),
               const SizedBox(height: 2),
               Text(
                 label,
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.4),
+                style: GoogleFonts.inter(
+                  color: AppColors.textMuted,
                   fontSize: 10,
                   fontWeight: FontWeight.w500,
                 ),
@@ -551,12 +563,13 @@ class _EarnedBadgeGrid extends StatelessWidget {
         final info = XPService.getBadgeInfo(a.badgeKey);
         return Container(
           width: (MediaQuery.of(context).size.width - 42) / 2,
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: const Color(0xFF131318),
-            borderRadius: BorderRadius.circular(20),
+            color: AppColors.lightSurface,
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: AppColors.cardShadow,
             border: Border.all(
-              color: const Color(0xFFFFD166).withOpacity(0.2),
+              color: AppColors.primary.withValues(alpha: 0.15),
               width: 1,
             ),
           ),
@@ -564,18 +577,18 @@ class _EarnedBadgeGrid extends StatelessWidget {
             children: [
               Text(
                 info['icon'] as String,
-                style: const TextStyle(fontSize: 28),
+                style: const TextStyle(fontSize: 26),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       info['name'] as String,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
+                      style: GoogleFonts.manrope(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w700,
                         fontSize: 13,
                       ),
                       maxLines: 1,
@@ -584,8 +597,8 @@ class _EarnedBadgeGrid extends StatelessWidget {
                     const SizedBox(height: 3),
                     Text(
                       '+${info['xp']} XP',
-                      style: const TextStyle(
-                        color: Color(0xFFFFD166),
+                      style: GoogleFonts.inter(
+                        color: AppColors.primary,
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
                       ),
@@ -604,31 +617,30 @@ class _EarnedBadgeGrid extends StatelessWidget {
 // ─── Empty badges ─────────────────────────────────────────────────────────────
 
 class _EmptyBadges extends StatelessWidget {
+  const _EmptyBadges();
+
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 32),
       decoration: BoxDecoration(
-        color: const Color(0xFF131318),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: Colors.white.withOpacity(0.06),
-          width: 1,
-        ),
+        color: AppColors.lightSurface,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: AppColors.cardShadow,
       ),
       child: Column(
         children: [
           Icon(
             Icons.emoji_events_rounded,
             size: 40,
-            color: Colors.white.withOpacity(0.15),
+            color: AppColors.textMuted,
           ),
           const SizedBox(height: 10),
           Text(
             'No badges yet',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.5),
+            style: GoogleFonts.manrope(
+              color: AppColors.textSecondary,
               fontSize: 14,
               fontWeight: FontWeight.w600,
             ),
@@ -636,8 +648,8 @@ class _EmptyBadges extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             'Keep exploring to earn your first badge!',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.3),
+            style: GoogleFonts.inter(
+              color: AppColors.textMuted,
               fontSize: 12,
             ),
           ),
@@ -666,18 +678,18 @@ class _BadgeCatalogTile extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: const Color(0xFF131318),
-        borderRadius: BorderRadius.circular(18),
+        color: AppColors.lightSurface,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: AppColors.cardShadow,
         border: earned
             ? Border.all(
-                color: const Color(0xFFFFD166).withOpacity(0.25), width: 1)
-            : Border.all(
-                color: Colors.white.withOpacity(0.05), width: 1),
+                color: AppColors.primary.withValues(alpha: 0.2), width: 1)
+            : null,
       ),
       child: Row(
         children: [
           Opacity(
-            opacity: earned ? 1.0 : 0.3,
+            opacity: earned ? 1.0 : 0.35,
             child: Text(
               info['icon'] as String,
               style: const TextStyle(fontSize: 26),
@@ -690,8 +702,10 @@ class _BadgeCatalogTile extends StatelessWidget {
               children: [
                 Text(
                   info['name'] as String,
-                  style: TextStyle(
-                    color: earned ? Colors.white : Colors.white54,
+                  style: GoogleFonts.manrope(
+                    color: earned
+                        ? AppColors.textPrimary
+                        : AppColors.textSecondary,
                     fontWeight: FontWeight.w600,
                     fontSize: 14,
                   ),
@@ -699,8 +713,8 @@ class _BadgeCatalogTile extends StatelessWidget {
                 const SizedBox(height: 3),
                 Text(
                   info['description'] as String,
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.35),
+                  style: GoogleFonts.inter(
+                    color: AppColors.textMuted,
                     fontSize: 12,
                     height: 1.3,
                   ),
@@ -714,22 +728,22 @@ class _BadgeCatalogTile extends StatelessWidget {
                   width: 30,
                   height: 30,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF3EF4A8).withOpacity(0.12),
+                    color: AppColors.primary.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Icon(Icons.check_rounded,
-                      color: Color(0xFF3EF4A8), size: 16),
+                      color: AppColors.primary, size: 16),
                 )
               : Container(
                   width: 30,
                   height: 30,
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.04),
+                    color: AppColors.surfaceContainer,
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Icon(
                     Icons.lock_outline_rounded,
-                    color: Colors.white.withOpacity(0.2),
+                    color: AppColors.textMuted,
                     size: 14,
                   ),
                 ),
@@ -749,11 +763,10 @@ class _SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       text,
-      style: const TextStyle(
-        color: Colors.white,
+      style: GoogleFonts.manrope(
+        color: AppColors.textPrimary,
         fontSize: 18,
         fontWeight: FontWeight.w700,
-        letterSpacing: -0.3,
       ),
     );
   }
@@ -771,6 +784,6 @@ class _InlineError extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Text(
         'Could not load badges',
-        style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 13),
+        style: GoogleFonts.inter(color: AppColors.textMuted, fontSize: 13),
       );
 }

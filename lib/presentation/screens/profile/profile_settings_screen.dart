@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/constants.dart';
+import '../../../services/app_settings_service.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/background_location_service.dart';
 import '../../../services/location_service.dart';
 
 class ProfileSettingsScreen extends ConsumerStatefulWidget {
@@ -26,8 +28,21 @@ class _ProfileSettingsScreenState
   bool _publicProfile = false;
   bool _showOnLeaderboard = true;
 
+  Future<void> _hapticSelectionIfEnabled() async {
+    if (ref.read(hapticsEnabledProvider)) {
+      await HapticFeedback.selectionClick();
+    }
+  }
+
+  Future<void> _hapticMediumIfEnabled() async {
+    if (ref.read(hapticsEnabledProvider)) {
+      await HapticFeedback.mediumImpact();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final hapticsEnabled = ref.watch(hapticsEnabledProvider);
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
@@ -38,7 +53,12 @@ class _ProfileSettingsScreenState
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_rounded,
                 color: Colors.white70, size: 22),
-            onPressed: () => context.pop(),
+            onPressed: () async {
+              await _hapticSelectionIfEnabled();
+              if (context.mounted) {
+                context.pop();
+              }
+            },
           ),
           title: const Text(
             'Settings',
@@ -92,12 +112,29 @@ class _ProfileSettingsScreenState
               _SettingsGroup(
                 children: [
                   _ToggleTile(
+                    icon: Icons.vibration_rounded,
+                    iconColor: const Color(0xFF3E8EF4),
+                    title: 'Haptic Feedback',
+                    subtitle: 'Tap feedback in navigation and actions',
+                    value: hapticsEnabled,
+                    onChanged: (v) async {
+                      await _hapticSelectionIfEnabled();
+                      await ref.read(hapticsEnabledProvider.notifier).set(v);
+                      if (v) {
+                        await HapticFeedback.lightImpact();
+                      }
+                    },
+                  ),
+                  _ToggleTile(
                     icon: Icons.notifications_outlined,
                     iconColor: const Color(0xFFFF9F43),
                     title: 'Push Notifications',
                     subtitle: 'Badges, streaks and activity',
                     value: _pushEnabled,
-                    onChanged: (v) => setState(() => _pushEnabled = v),
+                    onChanged: (v) async {
+                      await _hapticSelectionIfEnabled();
+                      setState(() => _pushEnabled = v);
+                    },
                   ),
                   _ToggleTile(
                     icon: Icons.summarize_outlined,
@@ -105,7 +142,10 @@ class _ProfileSettingsScreenState
                     title: 'Weekly Digest',
                     subtitle: 'Your travel summary every Monday',
                     value: _weeklyDigest,
-                    onChanged: (v) => setState(() => _weeklyDigest = v),
+                    onChanged: (v) async {
+                      await _hapticSelectionIfEnabled();
+                      setState(() => _weeklyDigest = v);
+                    },
                   ),
                   _ToggleTile(
                     icon: Icons.emoji_events_outlined,
@@ -113,7 +153,10 @@ class _ProfileSettingsScreenState
                     title: 'Badge Alerts',
                     subtitle: 'Notify when you earn a badge',
                     value: _badgeAlerts,
-                    onChanged: (v) => setState(() => _badgeAlerts = v),
+                    onChanged: (v) async {
+                      await _hapticSelectionIfEnabled();
+                      setState(() => _badgeAlerts = v);
+                    },
                   ),
                 ],
               ),
@@ -262,6 +305,7 @@ class _ProfileSettingsScreenState
   }
 
   void _exportDataSheet(BuildContext context) {
+    _hapticSelectionIfEnabled();
     _toast(context, 'Export feature coming soon', success: true);
   }
 
@@ -290,7 +334,9 @@ class _ProfileSettingsScreenState
       await ref.read(locationServiceProvider).stopTracking(
         completeRoute: false,
         markDestination: false,
-          );
+      );
+      await ref.read(alwaysOnTrackingProvider.notifier).set(false);
+      await BackgroundLocationService.stop();
 
       final memories = await AppConstants.supabase
           .from('travel_memories')
@@ -307,21 +353,30 @@ class _ProfileSettingsScreenState
 
       final failedTables = <String>[];
 
-      Future<void> deleteByUserId(String table) async {
-        try {
-          await AppConstants.supabase.from(table).delete().eq('user_id', uid);
+      Future<void> deleteByUserId(String table, {int maxAttempts = 3}) async {
+        Object? lastError;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+          try {
+            await AppConstants.supabase.from(table).delete().eq('user_id', uid);
 
-          final remaining = await AppConstants.supabase
-              .from(table)
-              .select('id')
-              .eq('user_id', uid)
-              .limit(1);
+            final remaining = await AppConstants.supabase
+                .from(table)
+                .select('id')
+                .eq('user_id', uid)
+                .limit(1);
 
-          if ((remaining as List).isNotEmpty) {
-            failedTables.add('$table (rows still present)');
+            if ((remaining as List).isEmpty) {
+              return;
+            }
+          } catch (e) {
+            lastError = e;
           }
-        } catch (e) {
-          failedTables.add('$table (${_compactError(e)})');
+        }
+
+        if (lastError != null) {
+          failedTables.add('$table (${_compactError(lastError)})');
+        } else {
+          failedTables.add('$table (rows still present)');
         }
       }
 
@@ -428,6 +483,7 @@ class _ProfileSettingsScreenState
       body: 'You will be returned to the login screen.',
       confirmLabel: 'Sign Out',
       onConfirm: () async {
+        await _hapticMediumIfEnabled();
         await AppConstants.supabase.auth.signOut();
         if (context.mounted) context.go('/login');
       },
@@ -443,6 +499,7 @@ class _ProfileSettingsScreenState
       confirmLabel: 'Delete Account',
       onConfirm: () async {
         try {
+          await _hapticMediumIfEnabled();
           final uid = AppConstants.supabase.auth.currentUser?.id;
           if (uid == null) return;
           // Delete user data then auth account

@@ -14,6 +14,11 @@ final userGroupsProvider = StreamProvider<List<TravelGroup>>((ref) {
   return ref.read(groupServiceProvider).userGroupsStream(userId);
 });
 
+final publicGroupsProvider = FutureProvider<List<TravelGroup>>((ref) async {
+  final userId = AppConstants.supabase.auth.currentUser?.id;
+  return ref.read(groupServiceProvider).getPublicGroups(userId: userId);
+});
+
 class GroupService {
   final _supabase = AppConstants.supabase;
 
@@ -103,6 +108,7 @@ class GroupService {
     DateTime? tripStart,
     DateTime? tripEnd,
     double? budget,
+    bool isPublic = false,
   }) async {
     final userId = _supabase.auth.currentUser!.id;
     final inviteCode = _generateInviteCode();
@@ -115,6 +121,7 @@ class GroupService {
       'trip_start': tripStart?.toIso8601String().split('T').first,
       'trip_end': tripEnd?.toIso8601String().split('T').first,
       'budget': budget,
+      'is_public': isPublic,
     }).select().single();
 
     // Add owner as member
@@ -129,6 +136,65 @@ class GroupService {
     }
 
     return TravelGroup.fromJson(data);
+  }
+
+  Future<List<TravelGroup>> getPublicGroups({String? userId}) async {
+    final rows = await _supabase
+        .from('travel_groups')
+        .select()
+        .eq('is_public', true)
+        .order('created_at', ascending: false)
+        .limit(30);
+
+    final groups = _parseGroups(rows as List);
+    if (userId == null || groups.isEmpty) return groups;
+
+    try {
+      final memberships = await _supabase
+          .from('group_members')
+          .select('group_id')
+          .eq('user_id', userId);
+
+      final joinedIds = (memberships as List)
+          .map((m) => m['group_id']?.toString())
+          .whereType<String>()
+          .toSet();
+
+      return groups.where((g) => !joinedIds.contains(g.id)).toList();
+    } catch (_) {
+      return groups;
+    }
+  }
+
+  Future<bool> joinPublicGroup(String groupId) async {
+    final userId = _supabase.auth.currentUser!.id;
+
+    final group = await _supabase
+        .from('travel_groups')
+        .select('id, is_public')
+        .eq('id', groupId)
+        .maybeSingle();
+
+    if (group == null || (group['is_public'] as bool? ?? false) == false) {
+      return false;
+    }
+
+    final existing = await _supabase
+        .from('group_members')
+        .select('group_id')
+        .eq('group_id', groupId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (existing != null) return true;
+
+    await _supabase.from('group_members').insert({
+      'group_id': groupId,
+      'user_id': userId,
+      'role': 'member',
+    });
+
+    return true;
   }
 
   Future<TravelGroup?> joinGroup(String inviteCode) async {
@@ -182,12 +248,22 @@ class GroupService {
   }
 
   Stream<List<GroupTodo>> todosStream(String groupId) {
-    return _supabase
-        .from('group_todos')
-        .stream(primaryKey: ['id'])
-        .eq('group_id', groupId)
-        .order('created_at')
-        .map((data) => data.map((t) => GroupTodo.fromJson(t)).toList());
+    return (() async* {
+      // Emit an immediate snapshot first so checklist tab is not blocked by
+      // realtime channel startup latency.
+      try {
+        yield await getTodos(groupId);
+      } catch (_) {
+        // Keep stream alive and fall through to realtime subscription.
+      }
+
+      yield* _supabase
+          .from('group_todos')
+          .stream(primaryKey: ['id'])
+          .eq('group_id', groupId)
+          .order('created_at')
+          .map((data) => data.map((t) => GroupTodo.fromJson(t)).toList());
+    })();
   }
 
   Future<void> addTodo(String groupId, String text) async {
